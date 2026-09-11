@@ -263,7 +263,7 @@
         "README.md has a Zero-touch preload section stating the device:'auto' requirement and the ORT version coupling",
         "npm test, npm run typecheck and npm run lint pass"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": 13,

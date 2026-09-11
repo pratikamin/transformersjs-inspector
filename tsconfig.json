@@ -10,8 +10,9 @@
     "noFallthroughCasesInSwitch": true,
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
+    "allowImportingTsExtensions": true,
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["src", "test", "demo", "e2e", "*.config.ts"]
+  "include": ["src", "test", "demo", "e2e", "*.config.ts", "vite.shared.ts"]
 }

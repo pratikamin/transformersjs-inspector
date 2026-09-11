@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>transformersjs-inspector · zero-touch preload</title>
+    <style>
+      body { font: 14px/1.5 system-ui, sans-serif; margin: 24px; max-width: 900px; }
+      h1 { font-size: 20px; }
+      main { border: 1px solid #ccc; border-radius: 6px; padding: 12px 16px; margin: 16px 0; }
+      pre[data-output] { background: #f4f4f4; padding: 8px; min-height: 1.5em; white-space: pre-wrap; word-break: break-all; }
+      [data-status]::after { content: attr(data-status); margin-left: 8px; font-size: 12px; color: #666; }
+      [data-status='error']::after { color: #b00020; }
+      [data-status='done']::after { color: #007a33; }
+      .note { color: #7a4b00; background: #fff4e0; border-radius: 4px; padding: 6px 10px; }
+      .progress { color: #666; font-size: 12px; min-height: 1.2em; }
+    </style>
+  </head>
+  <body>
+    <h1>Zero-touch preload</h1>
+    <p>
+      This page never calls <code>attach()</code>. The first module script is the preload entry
+      (<code>src/preload.ts</code>), which loads onnxruntime-web from the CDN and installs the shim on
+      <code>globalThis[Symbol.for('onnxruntime')]</code>; the second is an unmodified Transformers.js host that
+      runs one feature-extraction call. The inspector panel (bottom right) shows the run anyway.
+    </p>
+    <p class="note">zero-touch requires <code>device: 'auto'</code> — see README</p>
+    <p class="progress" data-progress></p>
+
+    <main data-status="loading">
+      <h2>Feature extraction <small>Xenova/all-MiniLM-L6-v2 · device: 'auto'</small></h2>
+      <p><code>The inspector sees everything.</code></p>
+      <pre data-output></pre>
+    </main>
+
+    <!-- Order matters: the preload must evaluate before the host loads Transformers.js. -->
+    <script type="module" src="./preload-entry.ts"></script>
+    <script type="module" src="./preload-host.ts"></script>
+  </body>
+</html>
