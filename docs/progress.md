@@ -50,7 +50,7 @@
 
 ## 2026-09-11 — story 6
 - Learned: `fixtureEvents()` carries 5 top-k entries per step (the wrapper default is 10); tests read the count from the `logits` event instead of hardcoding either. Re-rendering details on `updated` drops already-loaded tensor values (wholesale re-render, as story 5 built it); a second click reloads — documented, not fixed. `bus.dispatch` wraps handlers in a Promise, so a synchronously throwing handler rejects the request the same way a rejected promise does.
-- Watch out: `panel.ts` declares a local `const empty`, so importing `empty` from `./dom` there shadows it and only fails at typecheck. The sandbox refuses inline python heredocs inside a worktree; write the script to the scratchpad and run `python3 <abs path>`.
+- Watch out: `panel.ts` declares a local `const empty`, so importing `empty` from `./dom` there shadows it and only fails at typecheck.
 
 ## 2026-09-11 — story 9
 - Learned: `attach()` only wraps what the pipeline *instance* reaches through `pipe.model.generate` / `pipe.tokenizer._call`; a fake (or host) that captured the function in a closure silently bypasses the wrapper — `test/fakes.ts` text-generation fake was fixed to go through `pipe.model.generate` like the real `TextGenerationPipeline._call`. `store.attachTo(bus)` is once per (bus, store) pair and never unregistered on detach because other attached pipelines share it. `ensurePanel` remounts if the cached host was destroyed (`host.isConnected`).

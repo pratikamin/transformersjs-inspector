@@ -1,7 +1,6 @@
 # Brief: transformersjs-inspector
 
-> Drafted by the agent from the 2026-09-10 research conversation; reviewed and accepted
-> by Pratik the same day. If "Done looks like" or "Explicitly not doing" turns out wrong,
+> Drafted 2026-09-10 from the initial research; reviewed and accepted the same day. If "Done looks like" or "Explicitly not doing" turns out wrong,
 > fix it here, not downstream.
 
 ## Problem

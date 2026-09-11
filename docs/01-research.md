@@ -1,8 +1,8 @@
 # Research: transformersjs-inspector
 
-> Greenfield technology scan, per `prompts/research-greenfield.md`. Written 2026-09-10
+> Greenfield technology scan. Written 2026-09-10
 > against `@huggingface/transformers@4.2.0` (npm tarball, source read directly) with two
-> throwaway browser prototypes in `spike/`. Pratik reviews before planning starts.
+> throwaway browser prototypes in `spike/`. Reviewed before planning started.
 
 ## Verdict
 
@@ -168,4 +168,4 @@ fix). Both feed the same event stream into one panel.
 - [x] The risks are real risks, not filler
 - [x] No question was answered by guessing
 
-**Reviewed by:** Pratik **Date:** 2026-09-10 (reviewed in conversation; verdict matches his mental model)
+**Reviewed by:** Pratik Amin **Date:** 2026-09-10

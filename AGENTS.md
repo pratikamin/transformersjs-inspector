@@ -11,8 +11,8 @@ via `globalThis[Symbol.for('onnxruntime')]`, needs `device: 'auto'`) and `worker
 ## Stack
 
 TypeScript (strict, ESM, `moduleResolution: Bundler`), Vite lib build, Vitest (node + happy-dom),
-ESLint flat config + typescript-eslint, Playwright (Chromium) e2e against the Vite demo. Node >= 20
-(nvm: `~/.nvm/versions/node/v22.14.0/bin`). `@huggingface/transformers@4.2.0` is a dev dep for
+ESLint flat config + typescript-eslint, Playwright (Chromium) e2e against the Vite demo. Node >= 20 to
+consume, >= 22.12 to develop (`vitest@5` requires it). `@huggingface/transformers@4.2.0` is a dev dep for
 types and the ORT version pin only.
 
 ## Commands

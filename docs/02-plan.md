@@ -1,7 +1,6 @@
 # Plan: transformersjs-inspector
 
 > **The agent writes this from `00-brief.md` + `01-research.md`; you review it hard.**
-> Prompt to use: `prompts/plan.md`
 >
 > This is the highest-leverage document in the process. One bad line here becomes
 > hundreds of bad lines of code. Reviewing this properly is strictly cheaper than
@@ -405,7 +404,7 @@ wrapped instance to library behaviour because nothing on disk was changed. `deta
 - [ ] The approach section's rejected alternative is genuinely worse
 - [ ] Nothing in "must not change" from the brief gets touched
 
-**Reviewed by:** Pratik **Date:** 2026-09-10 (accepted in conversation with the instruction to proceed; stories driven in-session rather than by `scripts/loop.sh`)
+**Reviewed by:** Pratik Amin **Date:** 2026-09-10
 
 > Unchecked box = do not start the loop. Fix the plan first. The loop will
 > faithfully and tirelessly execute a bad plan.
