@@ -55,7 +55,7 @@
         "test/bus.test.ts passes: unsubscribe works, history is capped, request/handle round trip and timeout, loopbackPair relays each event exactly once with no echo, requests are forwarded to the peer that has a handler, and every fixtureEvents() entry survives structuredClone and JSON round trip unchanged",
         "npm test runs offline and exits 0"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": 3,

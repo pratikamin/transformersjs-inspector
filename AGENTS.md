@@ -59,3 +59,4 @@ spike/       verified wrapping experiments; read-only reference
 - Add runtime dependencies or a UI framework; dev deps stay at the 10 listed in the plan.
 
 <!-- loop-learned conventions appended below -->
+- `test/fakes.ts` is the one home for offline stand-ins (tensors, sessions, tokenizer, generative model, pipeline, fixture events); extend it rather than hand-rolling fakes inside a test file.
