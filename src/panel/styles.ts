@@ -162,7 +162,7 @@ pre {
 }
 .chip-id { font-size: 10px; color: var(--tjsi-muted); }
 .chip-str { white-space: pre; }
-.ws { background: #ddf4ff; border-radius: 2px; }
+.ws { background: var(--tjsi-ws); border-radius: 2px; }
 
 .run { margin-bottom: 8px; }
 table.tensors, table.topk { width: 100%; border-collapse: collapse; background: var(--tjsi-bg); }
