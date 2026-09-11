@@ -1,4 +1,4 @@
-export const VERSION = '0.1.0';
+export const VERSION = '0.1.1';
 export { attach } from './attach';
 export type { AttachOptions, AttachHandle } from './attach';
 export type { InspectorOptions } from './context';

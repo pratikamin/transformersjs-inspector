@@ -96,6 +96,15 @@ How it is organised:
 Rows that arrive without a pipeline call (the preload path, or a direct `model.sessions`
 call) are shown as `direct · <session>` rows with only the session run.
 
+### Where the panel sits
+
+The panel is fixed to the bottom-right corner of whatever it is mounted in (`document.body` by
+default, or `PanelOptions.container`). It measures itself and stays inside the visible viewport:
+if the host parks it above a dock or inside a transformed element, it shrinks to the space above
+and left of that anchor rather than running off the top or side of the screen, and on mobile it
+uses the visual viewport so the header stays reachable to collapse it again. Only when the anchor
+itself is off screen is the panel nudged back inside.
+
 ## Zero-touch preload
 
 `attach(pipe)` is the headline API and always works. The secondary entry, `preload`, needs no

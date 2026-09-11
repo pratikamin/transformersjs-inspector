@@ -13,6 +13,7 @@ import { h } from './dom';
 import type { CallView, PanelState } from './model';
 import { createState, reduce } from './model';
 import { renderRowDetails, renderRowSummary, renderTensorValues, valuesCellFor } from './render';
+import { fitElement, watchViewport } from './fit';
 import type { RenderContext } from './render';
 import { adoptStyles } from './styles';
 
@@ -74,6 +75,17 @@ export function mountPanel(bus: InspectorBus, opts: PanelOptions = {}): Inspecto
   const rendered = new Map<string, RowRefs>();
   const ctx: RenderContext = { bus };
 
+  /**
+   * Keeps the panel on screen whatever it is mounted in (see ./fit). Runs after anything that
+   * can change the panel's size or the viewport; cheap (one rect read), so no throttling
+   * beyond the viewport watcher's rAF.
+   */
+  const fit = (): void => {
+    if (destroyed) return;
+    fitElement(root);
+  };
+  const unwatchViewport = watchViewport(fit);
+
   const updateBadge = (): void => {
     badge.textContent = String(state.calls.length);
     empty.hidden = state.calls.length > 0;
@@ -121,6 +133,7 @@ export function mountPanel(bus: InspectorBus, opts: PanelOptions = {}): Inspecto
     const refs = rendered.get(call.id);
     if (refs) patchRow(refs, call);
     else appendRow(call);
+    fit();
   };
 
   const toggleExpand = (id: string): void => {
@@ -136,6 +149,7 @@ export function mountPanel(bus: InspectorBus, opts: PanelOptions = {}): Inspecto
       refs.row.appendChild(refs.details);
       refs.row.classList.add('expanded');
     }
+    fit();
   };
 
   /** Resolves one `Load values` click; the button is disabled while the request is in flight. */
@@ -196,12 +210,14 @@ export function mountPanel(bus: InspectorBus, opts: PanelOptions = {}): Inspecto
       root.classList.remove('closed');
       chevron.textContent = '▾';
       renderPending();
+      fit();
     },
     close() {
       if (!isOpen) return;
       isOpen = false;
       root.classList.add('closed');
       chevron.textContent = '▸';
+      fit();
     },
     isOpen: () => isOpen,
     clear() {
@@ -214,6 +230,7 @@ export function mountPanel(bus: InspectorBus, opts: PanelOptions = {}): Inspecto
       if (destroyed) return;
       destroyed = true;
       unsubscribe();
+      unwatchViewport();
       shadow.removeEventListener('click', onClick);
       rendered.clear();
       host.remove();
@@ -221,5 +238,6 @@ export function mountPanel(bus: InspectorBus, opts: PanelOptions = {}): Inspecto
   };
 
   if (opts.open) panel.open();
+  else fit();
   return panel;
 }
