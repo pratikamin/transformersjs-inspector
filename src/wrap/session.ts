@@ -1,6 +1,6 @@
 /**
  * Session boundary: replaces `session.run` on the instance the host holds (verified in
- * spike/b.html) with a wrapper that summarises every feed *before* calling through
+ * the feasibility prototype, docs/01-research.md) with a wrapper that summarises every feed *before* calling through
  * (in proxy mode the feeds are transferred to a worker and unreadable afterwards),
  * emits `run:start`, awaits the original, summarises the outputs and emits `run:end`.
  */

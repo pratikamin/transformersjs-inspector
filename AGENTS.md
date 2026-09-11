@@ -36,8 +36,7 @@ src/panel/   vanilla-DOM panel: model (reducer), dom (h()), styles, render, pane
 test/        Vitest unit tests + fakes.ts; never touches the network
 demo/        Vite demo pages; Transformers.js loaded from the CDN (demo/tf.ts), not npm
 e2e/         Playwright specs; persistent profile in .cache/pw-profile caches models
-docs/        00-brief, 01-research, 02-plan (read-only), progress.md (append-only)
-spike/       verified wrapping experiments; read-only reference
+docs/        00-brief, 01-research, 02-plan (design docs; read-only)
 ```
 
 ## Conventions
@@ -50,12 +49,11 @@ spike/       verified wrapping experiments; read-only reference
 - Panel: shadow root + constructed stylesheet; no `innerHTML`, no inline `style=` attributes.
 - `npm test` is offline. Anything needing a browser or a model is `npm run e2e`.
 - `import type` is enforced (`consistent-type-imports`); `verbatimModuleSyntax` is on.
-- `spike/` is read-only reference for the verified wrapping code.
 
 ## Do not
 
 - Edit `node_modules`, `dist/`, or `dist-demo/` (generated).
-- Edit `docs/00-brief.md`, `docs/01-research.md`, `docs/02-plan.md`, or anything in `spike/`.
+- Edit `docs/00-brief.md`, `docs/01-research.md`, or `docs/02-plan.md`.
 - Add runtime dependencies or a UI framework; dev deps stay at the 10 listed in the plan.
 
 <!-- loop-learned conventions appended below -->

@@ -3,7 +3,7 @@
  * duck-typed logits processor and streamer of ours merged in front of the host's. Neither
  * needs the `LogitsProcessor` / `TextStreamer` classes: `LogitsProcessorList._call` invokes
  * each entry as `processor(input_ids, logits)` and `generate` only ever calls
- * `streamer.put()` / `streamer.end()` (verified in spike/b.html and
+ * `streamer.put()` / `streamer.end()` (verified against the real library in the feasibility prototype and
  * `modeling_utils.js` 4.2.0, lines 944-1031), so plain callables satisfy both contracts.
  *
  * The processor emits `logits` (top-k over batch row 0, softmax-normalised) and the streamer

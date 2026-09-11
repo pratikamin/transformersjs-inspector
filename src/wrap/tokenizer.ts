@@ -1,5 +1,5 @@
 /**
- * Tokenizer boundary: wraps `tokenizer._call` (the `Callable` hook, as in spike/b.html)
+ * Tokenizer boundary: wraps `tokenizer._call` (the `Callable` hook, verified in the feasibility prototype)
  * on the instance so the raw text pairs up with the ids and token strings it produced,
  * and emits one `tokenize` event per call. `_call` and `_tokenizer` are underscore-private
  * in Transformers.js 4.x (research risk 1): when `_call` is not a function the wrapper

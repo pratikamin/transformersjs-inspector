@@ -1,5 +1,5 @@
 /**
- * Zero-touch interception, as verified in `spike/index.html`: Transformers.js reads
+ * Zero-touch interception, as verified in the feasibility prototype (docs/01-research.md): Transformers.js reads
  * `globalThis[Symbol.for('onnxruntime')]` at module evaluation and, when present, uses it
  * instead of its bundled onnxruntime-web. `installPreload` hands it a module-shaped shim of
  * the caller's ORT whose `InferenceSession.create` wraps every session it returns with

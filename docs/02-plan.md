@@ -143,7 +143,7 @@ and `npm run build` all pass on an almost-empty `src/`.
 | `tsconfig.build.json` | extends base; `include: ["src"]`, `declaration`, `emitDeclarationOnly`, `outDir: dist`, `noEmit: false`. |
 | `vite.config.ts` | `defineConfig` from `vitest/config`. `build.lib = { entry: { index: 'src/index.ts' }, formats: ['es'] }`, `build.target: 'es2022'`, `rollupOptions.external: ['@huggingface/transformers']`, `build.sourcemap: true`. `test = { include: ['test/**/*.test.ts'], environment: 'node' }`. |
 | `vite.demo.config.ts` | `root: 'demo'`, `base: './'`, `build.outDir: '../dist-demo'`, `emptyOutDir: true`, `server: { port: 5173, strictPort: true }`. |
-| `eslint.config.js` | Flat config: `ignores: ['dist/**', 'dist-demo/**', 'spike/**', 'docs/**', '.cache/**', 'node_modules/**']`, `@eslint/js` recommended, `typescript-eslint` `recommended` (not type-checked), rules: `@typescript-eslint/consistent-type-imports: error`, `no-console: ['warn', { allow: ['warn', 'error'] }]`. |
+| `eslint.config.js` | Flat config: `ignores: ['dist/**', 'dist-demo/**', 'docs/**', '.cache/**', 'node_modules/**']`, `@eslint/js` recommended, `typescript-eslint` `recommended` (not type-checked), rules: `@typescript-eslint/consistent-type-imports: error`, `no-console: ['warn', { allow: ['warn', 'error'] }]`. |
 | `src/index.ts` | `export const VERSION = '0.1.0';` |
 | `test/smoke.test.ts` | asserts `VERSION` matches `package.json`. |
 | `demo/index.html`, `demo/main.ts` | placeholder page that imports `../src/index.ts` and prints `VERSION`; replaced in Phase 5. |
@@ -222,7 +222,7 @@ npm test -- test/panel-model.test.ts test/panel.test.ts && npm run typecheck && 
 
 ### Phase 4: Wrappers and `attach()`
 
-The instance wrapping verified in `spike/b.html`, made restorable and idempotent, and
+The instance wrapping verified in the feasibility prototype, made restorable and idempotent, and
 correlated into calls.
 
 **Changes**
@@ -277,7 +277,7 @@ npx playwright install chromium && npm run e2e -- e2e/demo.spec.ts e2e/generatio
 ```
 
 **Done when:** the three specs pass with network access (models cached after the first run),
-and the overhead ratio printed by `overhead.spec.ts` is recorded in `docs/progress.md`.
+and the overhead ratio printed by `overhead.spec.ts` is recorded in the README.
 
 ### Phase 6: Zero-touch preload
 
@@ -383,7 +383,6 @@ Tempting things discovered during research, also out:
 - Encoder-decoder (Whisper, T5) demo sections. Covered by construction at the session
   boundary (`encoder_model` + `decoder_model_merged`), not demonstrated in v1.
 - CI workflow, npm publish, GitHub Pages deploy of `dist-demo/`. Manual for v1.
-- Any change to `spike/`. It is the historical reference for the verified wrapping code.
 
 ## Rollback
 

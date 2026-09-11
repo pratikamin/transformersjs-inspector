@@ -2,7 +2,7 @@
  * Timing budget: the demo's Benchmark button times 30 MiniLM embeddings with the pipeline
  * detached and 30 more attached (panel closed) and publishes both medians on
  * `window.__bench`. The brief's ~5 % figure is *printed* here and recorded by hand in
- * `docs/progress.md`; the assertion is the plan's noise-tolerant `ratio < 1.25`, because a
+ * the README; the assertion is the plan's noise-tolerant `ratio < 1.25`, because a
  * 5 % gate on ~10 ms runs would flake.
  */
 import { READY_TIMEOUT, TASK_TIMEOUT, expect, test } from './fixtures';

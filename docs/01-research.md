@@ -2,7 +2,8 @@
 
 > Greenfield technology scan. Written 2026-09-10
 > against `@huggingface/transformers@4.2.0` (npm tarball, source read directly) with two
-> throwaway browser prototypes in `spike/`. Reviewed before planning started.
+> throwaway browser prototypes (not kept in the repo; what they ran is listed at the end).
+> Reviewed before planning started.
 
 ## Verdict
 
@@ -66,7 +67,7 @@ For generation, `model.generate` loops: `forward` → `sessionRun` once per toke
 
 1. **Session boundary** — replace `session.run` on each `pipe.model.sessions[name]` instance
    with a wrapper. Verified: gives every named input and output tensor, dtype, dims,
-   location, and wall time. Proved in `spike/b.html` for encoder (MiniLM) and decoder-only
+   location, and wall time. Proved in prototype B for encoder (MiniLM) and decoder-only
    (tiny Llama: `input_ids`, `attention_mask`, `position_ids`, `past_key_values.*` in;
    `logits [1,1,128256]`, `present.*` out).
 2. **Tokenizer boundary** — wrap `pipe.tokenizer._call`; pair the raw text with ids and
@@ -76,7 +77,7 @@ For generation, `model.generate` loops: `forward` → `sessionRun` once per toke
    verified live once constructed correctly; `TextStreamer.token_callback_function` verified.
 4. **Zero-touch preload (optional)** — set `globalThis[Symbol.for('onnxruntime')]` to a
    copy of onnxruntime-web whose `InferenceSession.create` returns run-wrapped sessions.
-   Verified in `spike/index.html` **but** only with `device: 'auto'` (see constraints).
+   Verified in prototype A **but** only with `device: 'auto'` (see constraints).
 
 The library therefore has two entry points: `attach(pipe, opts)` (always works) and a
 preload script (works for hosts that already pass `device:'auto'`, or after an upstream
@@ -147,17 +148,16 @@ fix). Both feed the same event stream into one panel.
 
 ## What was actually run
 
-- `spike/index.html` — preload + unmodified `pipeline('feature-extraction','Xenova/all-MiniLM-L6-v2')`.
+- Prototype A — preload + unmodified `pipeline('feature-extraction','Xenova/all-MiniLM-L6-v2')`.
   Default device failed as described; retry with `device:'auto'` captured 1 run
   (`input_ids/attention_mask/token_type_ids [1,7]` → `last_hidden_state [1,7,384]`).
-- `spike/b.html` — `attach(pipe)` on the same model, then
+- Prototype B — `attach(pipe)` on the same model, then
   `pipeline('text-generation','onnx-community/tiny-random-LlamaForCausalLM-ONNX')`,
   3 tokens: 3 runs captured with logits and KV tensors, 3 streamed tokens, tokenizer
   text→ids→tokens. A `LogitsProcessor` pushed into a `LogitsProcessorList` fired once per
   step with `logits.dims [1,128256]` (verified from the console; the page version had the
   empty-constructor bug noted above).
-- Serve with `.claude/launch.json` → `spike` (python http.server on :5178). Model files
-  come from the HF Hub on first load and are cached by the browser Cache API after that.
+- Model files came from the HF Hub on first load and were cached by the browser Cache API after that.
 
 ---
 

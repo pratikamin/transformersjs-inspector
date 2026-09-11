@@ -112,7 +112,7 @@ export const TASKS: Record<string, Task> = {
   }),
   'text-generation': defineTask({
     label: 'text-generation · tiny-random-Llama',
-    // `device: 'auto'` as in spike/b.html, the verified generation run.
+    // `device: 'auto'`, as in the feasibility prototype's verified generation run.
     load: (progress_callback) => tf.pipeline('text-generation', 'onnx-community/tiny-random-LlamaForCausalLM-ONNX', { device: 'auto', progress_callback }),
     run: (pipe, text) => pipe(text, { max_new_tokens: 3 }),
     format: formatGeneration,
