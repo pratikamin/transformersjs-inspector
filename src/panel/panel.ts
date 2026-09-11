@@ -25,6 +25,11 @@ export interface PanelOptions {
   title?: string;
   /** Rows kept; oldest dropped beyond this. Default 200. */
   maxCalls?: number;
+  /**
+   * `'auto'` (default) follows `prefers-color-scheme`; `'light'` and `'dark'` force a theme
+   * regardless of it. Written to `data-theme` on the host element.
+   */
+  theme?: 'auto' | 'light' | 'dark';
 }
 
 export interface InspectorPanel {
@@ -45,6 +50,7 @@ type RowRefs = { row: HTMLElement; summary: HTMLElement; details: HTMLElement | 
 
 export function mountPanel(bus: InspectorBus, opts: PanelOptions = {}): InspectorPanel {
   const host = h('div', { data: { tjsiPanel: '' } });
+  host.dataset.theme = opts.theme ?? 'auto';
   const shadow = host.attachShadow({ mode: 'open' });
   adoptStyles(shadow);
 

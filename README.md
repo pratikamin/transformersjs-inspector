@@ -71,6 +71,11 @@ flat distribution and the repeated token.)
 
 ![Panel: text generation with per-step top-k](docs/img/panel-generation.png)
 
+Dark theme: the panel follows `prefers-color-scheme` by default (`theme: 'auto'`); `theme:
+'dark'` or `'light'` forces one whatever the OS prefers. The demo takes `?theme=dark`.
+
+![Panel: text generation in the dark theme](docs/img/panel-dark.png)
+
 How it is organised:
 
 - **One row per pipeline call**: sequence number, label (`task · model_type` by default),
@@ -214,6 +219,7 @@ show the full wiring.
 | `open` | `boolean` | `false` | Start expanded rather than as a badge. |
 | `title` | `string` | `Transformers.js inspector` | Header text. |
 | `maxCalls` | `number` | `200` | Rows kept; the oldest are dropped beyond this. |
+| `theme` | `'auto' \| 'light' \| 'dark'` | `'auto'` | `auto` follows `prefers-color-scheme`; the others force a theme. Written to `data-theme` on the host `<div>`. |
 
 The `AttachHandle` returned by `attach()` carries `bus`, `store` and `detach()`.
 

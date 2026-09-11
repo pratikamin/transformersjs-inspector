@@ -86,6 +86,35 @@ describe('adoptStyles', () => {
     expect(PANEL_CSS).toMatch(/z-index:\s*2147483647/);
     expect(PANEL_CSS).toMatch(/\.bar\s*\{/);
   });
+
+  test('dark theme: a media block that yields to data-theme="light", a data-theme="dark" block, and no stray colours', () => {
+    expect(PANEL_CSS).toMatch(/:host\s*\{[^}]*color-scheme:\s*light/);
+    expect(PANEL_CSS).toMatch(/@media \(prefers-color-scheme: dark\)\s*\{\s*:host\(:not\(\[data-theme="light"\]\)\)\s*\{[^}]*color-scheme: dark/);
+    expect(PANEL_CSS).toMatch(/:host\(\[data-theme="dark"\]\)\s*\{[^}]*color-scheme: dark/);
+    // The dark blocks are the last two rules; the explicit block comes after the media block so it wins.
+    const media = PANEL_CSS.indexOf('@media (prefers-color-scheme: dark)');
+    const explicit = PANEL_CSS.indexOf(':host([data-theme="dark"])');
+    expect(media).toBeGreaterThan(0);
+    expect(explicit).toBeGreaterThan(media);
+    // Both blocks override every token the light theme declares, and nothing else.
+    const lightTokens = [...PANEL_CSS.slice(0, media).matchAll(/(--tjsi-[a-z-]+):/g)].map((m) => m[1]).sort();
+    expect(lightTokens.length).toBeGreaterThanOrEqual(15);
+    for (const block of PANEL_CSS.slice(media).split(/\n(?=:host)/)) {
+      const darkTokens = [...block.matchAll(/(--tjsi-[a-z-]+):/g)].map((m) => m[1]).sort();
+      expect(darkTokens).toEqual(lightTokens);
+    }
+    // With the dark blocks stripped, every colour literal sits in a --tjsi-* declaration on :host.
+    const light = PANEL_CSS.slice(0, media);
+    for (const line of light.split('\n')) {
+      if (/#[0-9a-f]{3,8}\b|rgba?\(/i.test(line)) expect(line).toMatch(/^\s*--tjsi-[a-z-]+:/);
+    }
+    // No rule other than :host declares a token; every usage goes through var().
+    const usages = light.match(/var\(--tjsi-[a-z-]+\)/g) ?? [];
+    expect(usages.length).toBeGreaterThan(30);
+    for (const name of ['fg', 'muted', 'bg', 'bg-alt', 'bg-detail', 'border', 'border-soft', 'accent', 'on-accent', 'ok', 'warn', 'err', 'picked', 'shadow']) {
+      expect(light).toContain(`var(--tjsi-${name})`);
+    }
+  });
 });
 
 describe('mountPanel', () => {
@@ -106,6 +135,13 @@ describe('mountPanel', () => {
     expect(p.host.parentElement).toBe(container);
     expect(p.shadow.querySelector('.title')?.textContent).toBe('Mine');
     expect(p.isOpen()).toBe(true);
+  });
+
+  test('data-theme is auto by default and follows the theme option', () => {
+    expect(mount(new InspectorBus()).host.dataset.theme).toBe('auto');
+    expect(mount(new InspectorBus(), { theme: 'dark' }).host.dataset.theme).toBe('dark');
+    expect(mount(new InspectorBus(), { theme: 'light' }).host.dataset.theme).toBe('light');
+    expect(mount(new InspectorBus(), { theme: 'auto' }).host.getAttribute('data-theme')).toBe('auto');
   });
 
   test('while closed, fixture events create no rows and the badge reads the call count', () => {
