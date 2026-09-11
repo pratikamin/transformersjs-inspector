@@ -405,7 +405,7 @@ wrapped instance to library behaviour because nothing on disk was changed. `deta
 - [ ] The approach section's rejected alternative is genuinely worse
 - [ ] Nothing in "must not change" from the brief gets touched
 
-**Reviewed by:** <FILL> **Date:** <FILL>
+**Reviewed by:** Pratik **Date:** 2026-09-10 (accepted in conversation with the instruction to proceed; stories driven in-session rather than by `scripts/loop.sh`)
 
 > Unchecked box = do not start the loop. Fix the plan first. The loop will
 > faithfully and tirelessly execute a bad plan.
