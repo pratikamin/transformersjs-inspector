@@ -77,7 +77,7 @@
         "src/preview.ts exports previewInput and toCloneSafe; test/preview.test.ts covers every InputPreview branch, cycles, bigint, tensor-like values and truncation",
         "grep -rn 'document\\|window\\|@huggingface' src/ returns nothing"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": 4,

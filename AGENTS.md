@@ -60,3 +60,4 @@ spike/       verified wrapping experiments; read-only reference
 
 <!-- loop-learned conventions appended below -->
 - `test/fakes.ts` is the one home for offline stand-ins (tensors, sessions, tokenizer, generative model, pipeline, fixture events); extend it rather than hand-rolling fakes inside a test file.
+- Never read `tensor.data` outside `src/summarize.ts`; it throws on GPU/WebNN tensors. Use `isTensorLike`, `summarizeTensor`, `headOf` and `readTensor` from there, and `TensorStore.put` when the value must be readable later.
