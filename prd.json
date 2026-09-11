@@ -212,7 +212,7 @@
         "README.md gains a Development section with npm install, npx playwright install chromium, and the six npm scripts",
         "npm test, npm run typecheck and npm run lint still pass offline"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": 11,

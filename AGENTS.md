@@ -61,3 +61,5 @@ spike/       verified wrapping experiments; read-only reference
 <!-- loop-learned conventions appended below -->
 - `test/fakes.ts` is the one home for offline stand-ins (tensors, sessions, tokenizer, generative model, pipeline, fixture events); extend it rather than hand-rolling fakes inside a test file.
 - Never read `tensor.data` outside `src/summarize.ts`; it throws on GPU/WebNN tensors. Use `isTensorLike`, `summarizeTensor`, `headOf` and `readTensor` from there, and `TensorStore.put` when the value must be readable later.
+- Transformers.js 4.x pipelines, models and tokenizers all `extend Callable`: `typeof` is `'function'`, never `'object'`. Duck-type instances with `isInstanceLike` (function or object) in `src/attach.ts`, not `isRecord`.
+- e2e: `npm run e2e -- e2e/<spec>.spec.ts` (starts or reuses the Vite server on :5173). Specs import `test`/`expect`/`runTask` from `e2e/fixtures.ts`; the persistent profile `.cache/pw-profile` holds the model and CDN caches (`rm -rf` it for a cold run). Panel selectors go straight through the open shadow root of `[data-tjsi-panel]`.

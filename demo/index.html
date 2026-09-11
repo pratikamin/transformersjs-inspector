@@ -4,10 +4,35 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>transformersjs-inspector demo</title>
+    <style>
+      body { font: 14px/1.5 system-ui, sans-serif; margin: 24px; max-width: 900px; }
+      h1 { font-size: 20px; }
+      section[data-task] { border: 1px solid #ccc; border-radius: 6px; padding: 12px 16px; margin: 16px 0; }
+      section[data-task] h2 { font-size: 16px; margin: 0 0 8px; }
+      textarea { width: 100%; box-sizing: border-box; font: inherit; min-height: 3em; }
+      pre[data-output] { background: #f4f4f4; padding: 8px; min-height: 1.5em; white-space: pre-wrap; word-break: break-all; }
+      [data-status]::after { content: attr(data-status); margin-left: 8px; font-size: 12px; color: #666; }
+      [data-status='error']::after { color: #b00020; }
+      [data-status='done']::after { color: #007a33; }
+      .progress { color: #666; font-size: 12px; min-height: 1.2em; }
+    </style>
   </head>
   <body>
-    <h1>transformersjs-inspector</h1>
-    <p>Placeholder demo page. Version: <output data-version></output></p>
+    <h1>transformersjs-inspector <small>v<output data-version></output></small></h1>
+    <p>
+      Each section lazily loads its pipeline from the Hugging Face Hub on the first Run, wraps it with
+      <code>attach(pipe)</code>, and runs it. Open the inspector panel (bottom right) to see the call.
+    </p>
+    <p class="progress" data-progress></p>
+
+    <section data-task="feature-extraction" data-status="idle">
+      <h2>Feature extraction <small>Xenova/all-MiniLM-L6-v2</small></h2>
+      <textarea>The inspector sees everything.</textarea>
+      <!-- disabled until main.ts has loaded Transformers.js from the CDN and wired the section -->
+      <p><button type="button" data-run disabled>Run</button></p>
+      <pre data-output></pre>
+    </section>
+
     <script type="module" src="./main.ts"></script>
   </body>
 </html>

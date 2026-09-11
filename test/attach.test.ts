@@ -183,6 +183,26 @@ describe('attach: encoder pipeline', () => {
     const pipe = fakePipeline();
     expect(() => attach(pipe, { panel: false, bus: new InspectorBus() }).detach()).not.toThrow();
   });
+
+  test('function-shaped model and tokenizer (both extend Callable in 4.x) are accepted and wrapped', async () => {
+    const bus = new InspectorBus();
+    const pipe = fakePipeline();
+    // Real 4.2.0: `typeof pipe.model === 'function'` and `typeof pipe.tokenizer === 'function'`;
+    // sessions, config, _call, _tokenizer are own properties of the returned closure.
+    pipe.model = Object.assign(() => undefined, pipe.model);
+    pipe.tokenizer = Object.assign(() => undefined, pipe.tokenizer);
+    const originalRun = pipe.model.sessions.model.run;
+    const originalTokenize = pipe.tokenizer._call;
+    const handle = attach(pipe, { panel: false, bus });
+    expect(pipe.model.sessions.model.run).not.toBe(originalRun);
+    expect(pipe.tokenizer._call).not.toBe(originalTokenize);
+    await pipe(TEXT);
+    expect(types(bus)).toEqual(['call:start', 'tokenize', 'run:start', 'run:end', 'result']);
+    expect(find(bus, 'tokenize')[0].tokens[0][0]).toBe('[CLS]');
+    handle.detach();
+    expect(pipe.model.sessions.model.run).toBe(originalRun);
+    expect(pipe.tokenizer._call).toBe(originalTokenize);
+  });
 });
 
 describe('attach: generative pipeline', () => {

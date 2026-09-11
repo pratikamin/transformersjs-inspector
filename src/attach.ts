@@ -40,10 +40,18 @@ export interface AttachHandle {
 
 const isRecord = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null;
 
+/**
+ * Pipelines, models and tokenizers all `extend Callable` in Transformers.js 4.x, whose
+ * constructor returns a *function* carrying the instance properties; `typeof` is `'function'`
+ * for every one of them, so an object-only guard rejects real instances.
+ */
+const isInstanceLike = (x: unknown): x is Record<string, unknown> => typeof x === 'function' || isRecord(x);
+
 function assertPipeline(pipe: unknown): asserts pipe is PipelineLike {
-  const candidate = typeof pipe === 'function' || isRecord(pipe) ? (pipe as { model?: unknown }) : null;
+  const candidate = isInstanceLike(pipe) ? (pipe as { model?: unknown }) : null;
   const model = candidate?.model;
-  if (!isRecord(model) || !isRecord(model.sessions)) {
+  const modelSessions = isInstanceLike(model) ? (model as { sessions?: unknown }).sessions : undefined;
+  if (!isRecord(modelSessions)) {
     throw new InspectorError('attach(): expected a Transformers.js pipeline with model.sessions');
   }
 }
@@ -77,10 +85,10 @@ export function attach(pipe: unknown, opts: AttachOptions = {}): AttachHandle {
 
   const ctx = new WrapContext(bus, store, { ...opts, label: opts.label ?? defaultLabel(pipe) });
   const { model, tokenizer } = pipe;
-  if (isRecord(tokenizer)) ctx.tokenizer = tokenizer;
+  if (isInstanceLike(tokenizer)) ctx.tokenizer = tokenizer;
 
   const restores: (() => void)[] = [wrapSessions(model.sessions, ctx)];
-  if (isRecord(tokenizer)) restores.push(wrapTokenizer(tokenizer, ctx));
+  if (isInstanceLike(tokenizer)) restores.push(wrapTokenizer(tokenizer, ctx));
   if (typeof model.generate === 'function') restores.push(wrapGenerate(model as GenerateLike, ctx));
   restores.push(wrapPipelineCall(pipe, ctx));
 

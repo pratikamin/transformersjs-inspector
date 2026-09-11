@@ -1,0 +1,71 @@
+/**
+ * Shared Playwright fixtures. The browser context is a *persistent* Chromium profile under
+ * `.cache/pw-profile`, so the Cache API entries Transformers.js writes for model files and
+ * the HTTP cache for the CDN module survive between runs: the first run downloads, the rest
+ * are fast and offline-tolerant. The built-in `page` fixture derives from `context`, so this
+ * is the only override needed.
+ */
+import { fileURLToPath } from 'node:url';
+import { test as base, chromium, expect } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
+
+export const PROFILE_DIR = fileURLToPath(new URL('../.cache/pw-profile', import.meta.url));
+
+export const test = base.extend({
+  context: async ({ baseURL }, use) => {
+    const context = await chromium.launchPersistentContext(PROFILE_DIR, {
+      headless: true,
+      baseURL,
+      viewport: { width: 1280, height: 900 },
+    });
+    await use(context);
+    await context.close();
+  },
+  /** `E2E_DEBUG=1` echoes the page console and every Hub/CDN response with a timestamp. */
+  page: async ({ page }, use) => {
+    if (process.env.E2E_DEBUG) {
+      const t0 = Date.now();
+      const stamp = (): string => `[${((Date.now() - t0) / 1000).toFixed(1)}s]`;
+      page.on('console', (m) => process.stdout.write(`${stamp()} console.${m.type()} ${m.text().slice(0, 300)}\n`));
+      page.on('requestfailed', (r) => process.stdout.write(`${stamp()} FAILED ${r.url().slice(0, 140)} ${r.failure()?.errorText ?? ''}\n`));
+      page.on('response', (r) => {
+        const url = r.url();
+        if (/huggingface|jsdelivr/.test(url)) process.stdout.write(`${stamp()} ${r.status()} ${url.slice(0, 140)}\n`);
+      });
+    }
+    await use(page);
+  },
+});
+
+export { expect };
+
+/** Generous: the first run of a task downloads its model. */
+export const TASK_TIMEOUT = 240_000;
+
+/** Upper bound for the CDN import of Transformers.js on a cold profile; Run buttons are disabled until then. */
+export const READY_TIMEOUT = 60_000;
+
+/**
+ * Waits for the section's Run button (shipped `disabled`, enabled by `demo/main.ts` once the
+ * CDN import has resolved), fills the textarea, clicks Run and waits for
+ * `[data-task=<task>][data-status="done"]`. Fails fast, quoting the page's progress line and
+ * output, when the section reports `error` or never finishes.
+ */
+export async function runTask(page: Page, task: string, text: string): Promise<Locator> {
+  const section = page.locator(`[data-task="${task}"]`);
+  const run = section.getByRole('button', { name: 'Run' });
+  await expect(run, 'demo page did not finish loading Transformers.js').toBeEnabled({ timeout: READY_TIMEOUT });
+  await section.locator('textarea').fill(text);
+  await run.click();
+  const describe = async (): Promise<string> =>
+    `status=${await section.getAttribute('data-status')} progress="${await page.locator('[data-progress]').textContent()}" output="${(await section.locator('[data-output]').textContent())?.slice(0, 300)}"`;
+  await expect
+    .poll(() => section.getAttribute('data-status'), { timeout: TASK_TIMEOUT, message: `task ${task} did not finish` })
+    .toMatch(/^(done|error)$/)
+    .catch(async (e: unknown) => {
+      throw new Error(`task ${task} timed out: ${await describe()}`, { cause: e });
+    });
+  if ((await section.getAttribute('data-status')) !== 'done') throw new Error(`task ${task} failed: ${await describe()}`);
+  await expect(page.locator(`[data-task="${task}"][data-status="done"]`)).toHaveCount(1);
+  return section;
+}
