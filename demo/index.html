@@ -14,6 +14,11 @@
       [data-status]::after { content: attr(data-status); margin-left: 8px; font-size: 12px; color: #666; }
       [data-status='error']::after { color: #b00020; }
       [data-status='done']::after { color: #007a33; }
+      section.bench { border: 1px dashed #ccc; border-radius: 6px; padding: 12px 16px; margin: 16px 0; }
+      section.bench h2 { font-size: 16px; margin: 0 0 8px; }
+      [data-bench-status]::after { content: attr(data-bench-status); margin-left: 8px; font-size: 12px; color: #666; }
+      [data-bench-status='error']::after { color: #b00020; }
+      [data-bench-status='done']::after { color: #007a33; }
       .progress { color: #666; font-size: 12px; min-height: 1.2em; }
     </style>
   </head>
@@ -31,6 +36,25 @@
       <!-- disabled until main.ts has loaded Transformers.js from the CDN and wired the section -->
       <p><button type="button" data-run disabled>Run</button></p>
       <pre data-output></pre>
+    </section>
+
+    <section data-task="text-generation" data-status="idle">
+      <h2>Text generation <small>onnx-community/tiny-random-LlamaForCausalLM-ONNX · max_new_tokens 3</small></h2>
+      <textarea>hi</textarea>
+      <p><button type="button" data-run disabled>Run</button></p>
+      <pre data-output></pre>
+    </section>
+
+    <section data-task="text-classification" data-status="idle">
+      <h2>Text classification <small>Xenova/distilbert-base-uncased-finetuned-sst-2-english</small></h2>
+      <textarea>The inspector is a delight to use.</textarea>
+      <p><button type="button" data-run disabled>Run</button></p>
+      <pre data-output></pre>
+    </section>
+
+    <section class="bench" data-bench-status="idle">
+      <h2>Overhead benchmark <small>feature extraction · 5 warm-up, 30 runs detached, 30 attached (panel closed)</small></h2>
+      <p><button type="button" data-benchmark disabled>Benchmark</button> <output data-bench></output></p>
     </section>
 
     <script type="module" src="./main.ts"></script>

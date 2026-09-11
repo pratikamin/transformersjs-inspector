@@ -233,7 +233,7 @@
         "If generate rejects a plain array for logits_processor, the story switches the demo to pass opts.transformers from demo/tf.ts and records that in docs/progress.md; the plain-array path stays the default only if the e2e passes with it",
         "npm test, npm run typecheck and npm run lint still pass offline"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": 12,

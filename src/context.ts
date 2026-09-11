@@ -50,6 +50,25 @@ export function resolveOptions(partial: Partial<InspectorOptions> = {}): Inspect
   return out;
 }
 
+/**
+ * Call and run counters live on the *bus*, not the context: every `attach()` makes a new
+ * `WrapContext`, and two contexts emitting on one bus (a second pipeline, or a re-attach
+ * after `detach()`) must never both issue `c1`, because the panel reducer folds a repeated
+ * `call:start` id into the existing row. A `Symbol.for` key keeps the counters shared even
+ * when a preload bundle and an `attach()` bundle meet on the same global bus.
+ */
+const ID_COUNTERS: unique symbol = Symbol.for('transformersjs-inspector.ids');
+
+interface IdCounters {
+  calls: number;
+  runs: number;
+}
+
+function countersOf(bus: InspectorBus): IdCounters {
+  const holder = bus as unknown as Record<typeof ID_COUNTERS, IdCounters | undefined>;
+  return (holder[ID_COUNTERS] ??= { calls: 0, runs: 0 });
+}
+
 export class WrapContext {
   readonly bus: InspectorBus;
   readonly store: TensorStore;
@@ -58,21 +77,23 @@ export class WrapContext {
   currentCallId: string | null = null;
   /** Used by `tokenToString`; the tokenizer wrapper sets it, `attach()` may set it earlier. */
   tokenizer: TokenizerLike | null = null;
-  private calls = 0;
-  private runs = 0;
+  private readonly counters: IdCounters;
 
   constructor(bus: InspectorBus, store: TensorStore, opts: Partial<InspectorOptions> = {}) {
     this.bus = bus;
     this.store = store;
     this.opts = resolveOptions(opts);
+    this.counters = countersOf(bus);
   }
 
+  /** Unique per bus: `c1`, `c2`, … across every context that emits on it. */
   nextCallId(): string {
-    return `c${++this.calls}`;
+    return `c${++this.counters.calls}`;
   }
 
+  /** Unique per bus, like `nextCallId`. */
   nextRunId(): string {
-    return `r${++this.runs}`;
+    return `r${++this.counters.runs}`;
   }
 
   /**

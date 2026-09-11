@@ -134,6 +134,35 @@ describe('attach: encoder pipeline', () => {
     expect(pipe.model.sessions.model.run).toBe(originals.run);
   });
 
+  test('call and run ids are unique per bus across contexts: a second pipeline or a re-attach never reuses c1', async () => {
+    // Regression (story 11): counters lived on the WrapContext, so every attach() restarted at
+    // c1/r1 and the panel reducer folded the second context's calls into the first's rows.
+    const store = new TensorStore();
+    const shared = new InspectorBus();
+    expect(new WrapContext(shared, store).nextCallId()).toBe('c1');
+    expect(new WrapContext(shared, store).nextCallId()).toBe('c2'); // a second context on the same bus continues
+    expect(new WrapContext(new InspectorBus(), store).nextCallId()).toBe('c1'); // a fresh bus starts over
+
+    const bus = new InspectorBus();
+    const a = fakePipeline();
+    const b = fakePipeline();
+    const ha = attach(a, { panel: false, bus, store });
+    const hb = attach(b, { panel: false, bus, store });
+    await a(TEXT);
+    await b(TEXT);
+    ha.detach();
+    hb.detach();
+    const hc = attach(a, { panel: false, bus, store }); // re-attach after detach: a fresh context
+    await a(TEXT);
+    hc.detach();
+
+    expect(find(bus, 'call:start').map((e) => e.callId)).toEqual(['c1', 'c2', 'c3']);
+    const runIds = find(bus, 'run:start').map((e) => e.runId);
+    expect(runIds).toHaveLength(3);
+    expect(new Set(runIds).size).toBe(3);
+    for (const e of find(bus, 'run:end')) expect(runIds).toContain(e.runId);
+  });
+
   test('a throwing pipeline emits result with error, rethrows and restores currentCallId', async () => {
     const bus = new InspectorBus();
     const pipe = fakePipeline();
