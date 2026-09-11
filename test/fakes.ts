@@ -334,7 +334,8 @@ export function fakePipeline(opts: { task?: FakePipelineTask } = {}): FakePipeli
     pipe.model = { sessions: gen.sessions, config: gen.config, generate: (o) => gen.generate(o) };
     pipe._call = async (text: unknown, callOpts?: unknown) => {
       const enc = pipe.tokenizer._call(text);
-      const out = await gen.generate({ ...enc, ...((callOpts as Record<string, unknown>) ?? {}) });
+      // through `pipe.model.generate`, as the real `TextGenerationPipeline._call` does (`this.model.generate`)
+      const out = await pipe.model.generate!({ ...enc, ...((callOpts as Record<string, unknown>) ?? {}) });
       const ids = Array.from(out.data as ArrayLike<bigint>, Number);
       return [{ generated_text: pipe.tokenizer.decode(ids) }];
     };
