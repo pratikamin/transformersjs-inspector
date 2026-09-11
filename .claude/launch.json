@@ -4,8 +4,23 @@
     {
       "name": "spike",
       "runtimeExecutable": "python3",
-      "runtimeArgs": ["-m", "http.server", "5178", "--directory", "spike"],
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "5178",
+        "--directory",
+        "spike"
+      ],
       "port": 5178
+    },
+    {
+      "name": "demo",
+      "runtimeExecutable": "/Users/pratikamin/.nvm/versions/node/v22.14.0/bin/npm",
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
+      "port": 5173
     }
   ]
 }
