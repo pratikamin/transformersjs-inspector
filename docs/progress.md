@@ -39,3 +39,11 @@
 ## 2026-09-11 — story 7
 - Learned: restoring a wrapped method must know whether the original was an *own* property. ORT's `InferenceSession.run` and the tokenizer `Callable._call` live on the prototype, so `target.run = original` after detach would leave a shadowing own property behind; `replaceMethod` in `src/wrap/session.ts` records `hasOwnProperty` at wrap time and `delete`s on restore. Reuse it for `generate` and `pipe._call` in stories 8-9. `WRAPPED`'s value is the installed wrapper, so restore can tell if someone else replaced the method since.
 - Watch out: in zsh a bare `echo ===` fails ("not found", `=` triggers equals-expansion) and `echo "$?"` after `cmd | tail` reports tail's status; use `set -o pipefail` and quoted separators or the "all green" check lies.
+
+## 2026-09-11 — story 5
+- Learned: `fixtureEvents()` is 5 events for c1 (start, tokenize, run:start, run:end, result) and c2 begins at index 5; slicing at 6 silently pulls c2's `call:start` in. happy-dom 20 supports `CSSStyleSheet.replaceSync` and `adoptedStyleSheets`, so the constructed-sheet path is what the tests exercise; the `<style>` fallback is covered with a plain object lacking `adoptedStyleSheets`. `RenderContext` is `{ bus }` so story 6 can `request('tensor')` without changing render signatures; `data-call` lives on the `.summary` element, details carry `data-details=<id>`.
+- Watch out: the `grep -rn "innerHTML\|style="` gate also matches *comments* — never write those tokens in doc comments under `src/panel`. Vitest 5 swallows `console.warn` inside happy-dom tests; throw an `Error` carrying the string to inspect DOM state.
+
+## 2026-09-11 — story 8
+- Learned: in 4.2.0 `LogitsProcessorList.extend(items)` spreads any iterable and calls each entry as a function, so a plain array of callables is accepted; the `transformers.LogitsProcessorList` escape hatch exists but is untested against the real library (story 11's e2e is the arbiter). Read logits through `cpuData()` in `src/summarize.ts`, never `tensor.data` directly. `fakeGenerativeModel` puts ~11.7k of 128,256 logits at −1, so the picked token's softmax share is ≈0.30 — assert exact `exp(x−max)/Σ` values, not "peak ≈ 1".
+- Watch out: `${PIPESTATUS[0]}` is bash-only; in zsh it prints blank and reads as success. ESLint `no-unused-vars` (after-used) flags an `_`-prefixed *sole* parameter — drop it instead.

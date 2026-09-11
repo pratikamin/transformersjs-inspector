@@ -113,7 +113,7 @@
         "src/index.ts exports mountPanel, InspectorBus, loopbackPair, TensorStore and the event types",
         "npm test, npm run typecheck and npm run lint pass"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": 6,
@@ -169,7 +169,7 @@
         "With retainLogits=true each logits event carries a tensorId readable from the store; with the default false, tensorId is null",
         "npm test, npm run typecheck and npm run lint pass"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": 9,
