@@ -1,7 +1,13 @@
 export const VERSION = '0.1.0';
+export { attach } from './attach';
+export type { AttachOptions, AttachHandle } from './attach';
+export type { InspectorOptions } from './context';
+export { getDefaultBus, getDefaultStore, ensurePanel } from './default';
+export { WRAPPED } from './wrap/session';
 export { InspectorBus, InspectorError, loopbackPair } from './bus';
 export type { Transport, WireMessage } from './bus';
 export { TensorStore } from './store';
 export { mountPanel } from './panel/panel';
 export type { PanelOptions, InspectorPanel } from './panel/panel';
 export type * from './events';
+export type { PipelineLike, SessionLike, TokenizerLike, TensorLike } from './types';
