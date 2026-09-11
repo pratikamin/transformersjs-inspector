@@ -132,7 +132,7 @@
         "No tensor request is issued before the load button is clicked (spy on bus.request)",
         "npm test, npm run typecheck and npm run lint pass"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": 7,
@@ -189,7 +189,7 @@
         "src/index.ts exports attach, getDefaultBus, WRAPPED and the option/handle types",
         "npm test, npm run typecheck and npm run lint pass"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": 10,
