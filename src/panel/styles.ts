@@ -143,12 +143,15 @@ table.tensors th, table.tensors td, table.topk th, table.topk td {
   white-space: nowrap;
 }
 table.tensors th, table.topk th { background: #f6f8fa; font-weight: 600; color: #57606a; }
-table.tensors td.head { white-space: normal; word-break: break-all; color: #57606a; }
+table.tensors td.head { white-space: normal; word-break: break-all; color: #57606a; min-width: 14em; }
 table.tensors td.num, table.topk td.num { text-align: right; font-variant-numeric: tabular-nums; }
-tr.values td { white-space: normal; background: #fbfcfd; }
+/* max-width: 0 keeps the wide colspan values cell from stretching the table and squeezing
+   the other columns; the list scrolls inside the cell instead. */
+tr.values td { white-space: normal; background: #fbfcfd; max-width: 0; }
 .values-list {
   max-height: 200px;
   overflow: auto;
+  overflow-wrap: anywhere;
   word-break: break-all;
   font-variant-numeric: tabular-nums;
   color: #1f2328;
