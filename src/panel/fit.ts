@@ -5,17 +5,35 @@
  * mount it inside a transformed or otherwise positioned container (a common trick to park
  * the panel above a dock), and then `right`/`bottom` resolve against that container while
  * `100vw`/`100vh` still mean the layout viewport. On mobile, `100vh` also overshoots the
- * visible area. So instead of trusting CSS units the panel measures itself: the bottom-right
- * corner is the host's chosen anchor and stays put; the panel is capped to the space above
- * and to the left of that anchor; and only when the anchor itself is outside the visible
- * viewport is the panel translated inward. All writes go through the CSSOM, never an inline
- * style attribute, so CSP `style-src` is not involved.
+ * visible area. So instead of trusting CSS units the panel measures itself: the corner named
+ * by the dock (bottom-right by default) is the host's chosen anchor and stays put; the panel
+ * is capped to the space on the far side of that anchor (above and to the left of a
+ * bottom-right anchor, below and to the right of a top-left one, and so on); and only when
+ * the anchor itself is outside the visible viewport is the panel translated inward. All
+ * writes go through the CSSOM, never an inline style attribute, so CSP `style-src` is not
+ * involved.
  */
 
 export const FIT_MARGIN = 16;
 /** Below these the panel would be unusable, so the anchor is moved instead of shrinking further. */
 export const MIN_WIDTH = 280;
 export const MIN_HEIGHT = 160;
+
+/** Which corner of the panel is anchored; the panel grows away from it. */
+export type Dock = 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left';
+export const DEFAULT_DOCK: Dock = 'bottom-right';
+
+/**
+ * Per-axis orientation of a dock: `'far'` when the anchor is the axis's far edge (right or
+ * bottom) and the panel extends towards the origin, `'near'` when it is the near edge (left
+ * or top) and the panel extends away from it.
+ */
+type Side = 'near' | 'far';
+
+const sidesOf = (dock: Dock): { x: Side; y: Side } => ({
+  x: dock.endsWith('right') ? 'far' : 'near',
+  y: dock.startsWith('bottom') ? 'far' : 'near',
+});
 
 export interface Viewport {
   /** Visible width/height (the visual viewport when available, else the window's inner size). */
@@ -47,11 +65,11 @@ export function readViewport(win: Window = window): Viewport {
 }
 
 /**
- * Computes size caps and a translation for a panel whose bottom-right corner sits at
- * (`anchorRight`, `anchorBottom`) in layout-viewport coordinates. Pure, so it is unit-testable
- * without layout.
+ * Computes size caps and a translation for a panel whose anchored corner (the one named by
+ * `dock`) sits at (`anchorX`, `anchorY`) in layout-viewport coordinates. Pure, so it is
+ * unit-testable without layout.
  */
-export function computeFit(anchorRight: number, anchorBottom: number, vp: Viewport, margin = FIT_MARGIN): Fit {
+export function computeFit(anchorX: number, anchorY: number, vp: Viewport, dock: Dock = DEFAULT_DOCK, margin = FIT_MARGIN): Fit {
   const left = vp.offsetLeft + margin;
   const top = vp.offsetTop + margin;
   const right = vp.offsetLeft + vp.width - margin;
@@ -59,32 +77,36 @@ export function computeFit(anchorRight: number, anchorBottom: number, vp: Viewpo
   const viewportW = Math.max(0, right - left);
   const viewportH = Math.max(0, bottom - top);
 
-  const fitAxis = (anchor: number, lo: number, hi: number, min: number, room: number): { cap: number; delta: number } => {
+  const fitAxis = (anchor: number, lo: number, hi: number, min: number, room: number, side: Side): { cap: number; delta: number } => {
     let delta = 0;
-    // Anchor past the far edge: pull it back to the margin.
-    if (anchor > hi) delta = hi - anchor;
-    // Space between the near margin and the anchor; if too small, push the anchor out to make room.
-    let available = anchor + delta - lo;
+    // The panel extends from the anchor towards `lo` (far side) or towards `hi` (near side).
+    // Anchor past the edge it is docked to: pull it back to the margin.
+    if (side === 'far' && anchor > hi) delta = hi - anchor;
+    if (side === 'near' && anchor < lo) delta = lo - anchor;
+    // Space between the anchor and the opposite margin; if too small, push the anchor out to make room.
+    let available = side === 'far' ? anchor + delta - lo : hi - (anchor + delta);
     const wanted = Math.min(min, room);
     if (available < wanted) {
-      delta += wanted - available;
+      delta += side === 'far' ? wanted - available : available - wanted;
       available = wanted;
     }
     return { cap: Math.min(available, room), delta };
   };
 
-  const x = fitAxis(anchorRight, left, right, MIN_WIDTH, viewportW);
-  const y = fitAxis(anchorBottom, top, bottom, MIN_HEIGHT, viewportH);
+  const sides = sidesOf(dock);
+  const x = fitAxis(anchorX, left, right, MIN_WIDTH, viewportW, sides.x);
+  const y = fitAxis(anchorY, top, bottom, MIN_HEIGHT, viewportH, sides.y);
   return { maxWidth: x.cap, maxHeight: y.cap, dx: x.delta, dy: y.delta };
 }
 
 /** Applies `computeFit` to a laid-out element; a no-op before first layout (zero-size rect). */
-export function fitElement(el: HTMLElement, vp: Viewport = readViewport()): Fit | null {
+export function fitElement(el: HTMLElement, vp: Viewport = readViewport(), dock: Dock = DEFAULT_DOCK): Fit | null {
   // Measure without the previous translation so the anchor is the host's, not ours.
   el.style.translate = '';
   const r = el.getBoundingClientRect();
   if (r.width === 0 && r.height === 0) return null;
-  const fit = computeFit(r.right, r.bottom, vp);
+  const sides = sidesOf(dock);
+  const fit = computeFit(sides.x === 'far' ? r.right : r.left, sides.y === 'far' ? r.bottom : r.top, vp, dock);
   el.style.maxWidth = `${Math.round(fit.maxWidth)}px`;
   el.style.maxHeight = `${Math.round(fit.maxHeight)}px`;
   el.style.translate = fit.dx || fit.dy ? `${Math.round(fit.dx)}px ${Math.round(fit.dy)}px` : '';
