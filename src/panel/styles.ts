@@ -65,6 +65,7 @@ export const PANEL_CSS = `
   cursor: pointer;
 }
 .btn:hover { background: #f3f4f6; }
+.btn:disabled { opacity: 0.55; cursor: progress; }
 .chev { width: 1em; text-align: center; color: #57606a; }
 
 .body { overflow: auto; }
@@ -144,13 +145,24 @@ table.tensors th, table.tensors td, table.topk th, table.topk td {
 table.tensors th, table.topk th { background: #f6f8fa; font-weight: 600; color: #57606a; }
 table.tensors td.head { white-space: normal; word-break: break-all; color: #57606a; }
 table.tensors td.num, table.topk td.num { text-align: right; font-variant-numeric: tabular-nums; }
-tr.values td { white-space: normal; }
-.values-list { max-height: 200px; overflow: auto; word-break: break-all; }
+tr.values td { white-space: normal; background: #fbfcfd; }
+.values-list {
+  max-height: 200px;
+  overflow: auto;
+  word-break: break-all;
+  font-variant-numeric: tabular-nums;
+  color: #1f2328;
+}
 
-/* Generation section (story 6): per-step blocks and top-k rows with probability bars. */
-.step { margin-bottom: 6px; }
-.bar-cell { width: 120px; }
-.bar { height: 8px; width: 0; background: #0969da; border-radius: 2px; }
+/* Generation section: per-step blocks and top-k rows with probability bars. */
+.step { margin-bottom: 8px; }
+.step-head { font-weight: 600; color: #1f2328; }
+table.topk td.tok { white-space: pre; font-weight: 600; }
+table.topk tr.picked td { background: #dafbe1; }
+table.topk td.prob { width: 45%; }
+.prob { display: flex; align-items: center; gap: 6px; }
+.prob-text { min-width: 5.5em; text-align: right; font-variant-numeric: tabular-nums; }
+.bar { height: 8px; width: 0; max-width: 100%; background: #0969da; border-radius: 2px; }
 `;
 
 type ConstructableShadow = ShadowRoot & { adoptedStyleSheets?: CSSStyleSheet[] };

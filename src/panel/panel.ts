@@ -3,14 +3,16 @@
  *
  * Three levels of laziness: while closed only the reducer runs and the badge count is
  * written; an open panel renders one summary row per call; expanding a row renders its
- * sections. Tensor values are fetched only when "Load values" is clicked (story 6).
+ * sections. Tensor values are fetched only when "Load values" is clicked: that is the sole
+ * caller of `bus.request('tensor')`. Details are re-rendered wholesale on every update of an
+ * expanded call, so values loaded into a still-running call disappear and need another click.
  */
 import type { InspectorBus } from '../bus';
 import type { InspectorEvent } from '../events';
 import { h } from './dom';
 import type { CallView, PanelState } from './model';
 import { createState, reduce } from './model';
-import { renderRowDetails, renderRowSummary } from './render';
+import { renderRowDetails, renderRowSummary, renderTensorValues, valuesCellFor } from './render';
 import type { RenderContext } from './render';
 import { adoptStyles } from './styles';
 
@@ -136,6 +138,22 @@ export function mountPanel(bus: InspectorBus, opts: PanelOptions = {}): Inspecto
     }
   };
 
+  /** Resolves one `Load values` click; the button is disabled while the request is in flight. */
+  const loadValues = async (id: string, row: HTMLElement, button: HTMLButtonElement | null): Promise<void> => {
+    const cell = valuesCellFor(row);
+    cell.textContent = '';
+    cell.appendChild(h('div', { class: 'muted' }, 'loading…'));
+    if (button) button.disabled = true;
+    try {
+      const data = await bus.request('tensor', { id });
+      renderTensorValues(cell, data);
+    } catch (e: unknown) {
+      renderTensorValues(cell, { id, error: e instanceof Error ? e.message : String(e) });
+    } finally {
+      if (button) button.disabled = false;
+    }
+  };
+
   const onClick = (e: Event): void => {
     const target = e.target;
     if (!(target instanceof Element)) return;
@@ -154,10 +172,12 @@ export function mountPanel(bus: InspectorBus, opts: PanelOptions = {}): Inspecto
       case 'clear':
         panel.clear();
         break;
-      case 'load':
-        // TODO(story 6): bus.request('tensor', { id }) for the enclosing [data-tensor] row,
-        // then renderTensorValues(...) into a `tr.values` inserted after it.
+      case 'load': {
+        const row = actionEl.closest<HTMLElement>('tr[data-tensor]');
+        const id = actionEl.dataset.tensor ?? row?.dataset.tensor;
+        if (row && id) void loadValues(id, row, actionEl instanceof HTMLButtonElement ? actionEl : null);
         break;
+      }
       default:
         break;
     }

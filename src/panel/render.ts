@@ -2,15 +2,16 @@
  * Pure `CallView` → DOM rendering. Nothing here subscribes or handles clicks: the panel
  * owns the state and delegates clicks by `data-action`; this module only builds elements.
  *
- * Extension points reserved for story 6 (lazy tensor values, generation section):
- *   - `renderTensorValues(el, data)` fills a `tr.values` inserted after a `[data-tensor]` row.
- *   - `renderGeneration(call)` becomes a section between "Session runs" and "Result".
+ * Lazy tensor values: the panel resolves a `Load values` click through the bus and hands the
+ * response to `renderTensorValues(cell, data)`, where `cell` comes from `valuesCellFor(row)`
+ * (a `tr.values` inserted right after the tensor's row). The `Generation` section sets its
+ * `.bar` widths through the CSSOM property, never a markup attribute, so a strict CSP is fine.
  */
 import type { InspectorBus } from '../bus';
-import type { InputPreview, TensorSummary } from '../events';
-import { fmtBytes, fmtDims, fmtMs, fmtNum, h } from './dom';
+import type { InputPreview, TensorData, TensorSummary, TopKEntry } from '../events';
+import { empty, fmtBytes, fmtDims, fmtMs, fmtNum, h } from './dom';
 import type { Child } from './dom';
-import type { CallView, RunView, TokenizeEvent } from './model';
+import type { CallView, RunView, StepView, TokenizeEvent } from './model';
 
 /** What sections may need beyond the call itself (story 6 issues `ctx.bus.request('tensor')`). */
 export interface RenderContext {
@@ -128,7 +129,10 @@ function fmtHead(t: TensorSummary): string {
 
 const TENSOR_COLUMNS = ['name', 'dtype', 'dims', 'location', 'bytes', 'head', ''];
 
-/** One `<tr data-tensor=id>` per summary; the `Load values` button is wired by the panel (story 6). */
+/**
+ * One `<tr data-tensor=id>` per summary. The `Load values` button carries both
+ * `data-action="load"` and `data-tensor="<id>"`; the panel's click delegation resolves it.
+ */
 export function renderTensorTable(tensors: TensorSummary[]): HTMLElement {
   return h(
     'table',
@@ -147,7 +151,7 @@ export function renderTensorTable(tensors: TensorSummary[]): HTMLElement {
           h('td', null, t.location),
           h('td', { class: 'num', title: `${t.size} elements` }, fmtBytes(t.bytes)),
           h('td', { class: 'head' }, fmtHead(t)),
-          h('td', null, t.id ? h('button', { class: 'btn', data: { action: 'load' } }, 'Load values') : null),
+          h('td', null, t.id ? h('button', { class: 'btn', data: { action: 'load', tensor: t.id } }, 'Load values') : null),
         ),
       ),
     ),
@@ -167,6 +171,112 @@ function renderRun(run: RunView, index: number): HTMLElement {
     run.done ? (run.outputs.length ? renderTensorTable(run.outputs) : h('div', { class: 'muted' }, 'none')) : h('div', { class: 'muted' }, 'pending…'),
   );
 }
+
+// ---- lazy tensor values ----------------------------------------------------------
+
+/** Values rendered before the `… N more` note; keeps a 128k-logit readback from freezing the tab. */
+export const MAX_VALUES = 4096;
+
+/**
+ * Finds or creates the `tr.values` that sits directly under a `[data-tensor]` table row and
+ * returns its single cell, the element `renderTensorValues` fills. The same tensor id may
+ * appear in several tables (Session runs and Result); each row owns its own cell.
+ */
+export function valuesCellFor(row: HTMLElement): HTMLElement {
+  const next = row.nextElementSibling;
+  if (next instanceof HTMLElement && next.classList.contains('values')) {
+    const existing = next.querySelector<HTMLElement>('td');
+    if (existing) return existing;
+  }
+  const cell = h('td', { class: 'values-cell', colSpan: TENSOR_COLUMNS.length });
+  const tr = h('tr', { class: 'values', data: { values: row.dataset.tensor ?? '' } }, cell);
+  row.parentNode?.insertBefore(tr, row.nextSibling);
+  return cell;
+}
+
+function valuesOf(data: ArrayBufferView | string[]): { shown: string[]; total: number } {
+  if (Array.isArray(data)) return { shown: data.slice(0, MAX_VALUES), total: data.length };
+  if (!('length' in data)) return { shown: [], total: 0 };
+  const arr = data as unknown as ArrayLike<number | bigint | boolean>;
+  const n = Math.min(arr.length, MAX_VALUES);
+  const shown: string[] = new Array<string>(n);
+  for (let i = 0; i < n; i++) {
+    const v = arr[i];
+    shown[i] = fmtNum(typeof v === 'bigint' ? Number(v) : v);
+  }
+  return { shown, total: arr.length };
+}
+
+/**
+ * Fills `el` with a `TensorData` response: up to `MAX_VALUES` values (bigint arrays through
+ * `Number`, string arrays verbatim) followed by a `… N more` note when truncated, or the
+ * error string (`unknown`, `evicted`, `disposed`, a timeout message) for `{ error }` responses.
+ */
+export function renderTensorValues(el: HTMLElement, data: TensorData): void {
+  empty(el);
+  if ('error' in data) {
+    el.appendChild(h('div', { class: 'error', data: { valuesError: '' } }, data.error));
+    return;
+  }
+  const { shown, total } = valuesOf(data.data);
+  const more = total - shown.length;
+  el.appendChild(h('div', { class: 'meta' }, `${data.dtype} ${fmtDims(data.dims)} · ${total} value${total === 1 ? '' : 's'}`));
+  el.appendChild(h('div', { class: 'values-list' }, shown.length ? shown.join(', ') : h('span', { class: 'muted' }, 'empty')));
+  if (more > 0) el.appendChild(h('div', { class: 'muted', data: { more } }, `… ${more} more`));
+}
+
+// ---- generation ----------------------------------------------------------------
+
+const TOPK_COLUMNS = ['token', 'id', 'logit', 'prob'];
+
+function clampPct(prob: number): string {
+  const pct = Number.isFinite(prob) ? Math.min(100, Math.max(0, prob * 100)) : 0;
+  return `${pct.toFixed(1)}%`;
+}
+
+function renderTopK(entries: TopKEntry[], picked: number[]): HTMLElement {
+  return h(
+    'table',
+    { class: 'topk' },
+    h('thead', null, h('tr', null, TOPK_COLUMNS.map((c) => h('th', null, c)))),
+    h(
+      'tbody',
+      null,
+      entries.map((e) => {
+        const bar = h('div', { class: 'bar' });
+        // CSSOM property write; the stylesheet's `.bar { width: 0 }` is the fallback.
+        bar.style.width = clampPct(e.prob);
+        return h(
+          'tr',
+          { class: picked.includes(e.id) ? 'picked' : undefined, data: { token: e.id } },
+          h('td', { class: 'tok' }, e.token ?? '∅'),
+          h('td', { class: 'num' }, String(e.id)),
+          h('td', { class: 'num' }, fmtNum(e.logit)),
+          h('td', { class: 'prob' }, h('span', { class: 'prob-text' }, fmtNum(e.prob)), bar),
+        );
+      }),
+    ),
+  );
+}
+
+function renderStep(step: StepView): HTMLElement {
+  const ids = step.ids ?? [];
+  const tokenText = ids.length ? `token ${ids.join(', ')}${step.text !== undefined && step.text !== null ? ` "${step.text}"` : ''}` : 'no token yet';
+  const logitsText = step.tensorId ? ` · logits ${step.tensorId}` : '';
+  return h(
+    'div',
+    { class: 'step', data: { step: step.step } },
+    h('div', { class: 'meta step-head' }, `step ${step.step} · ${tokenText}${logitsText}`),
+    step.topK ? (step.topK.length ? renderTopK(step.topK, ids) : h('div', { class: 'muted' }, 'empty top-k')) : h('div', { class: 'muted' }, 'no logits captured'),
+  );
+}
+
+/** Per-step token and top-k table; only called when `call.steps.length > 0`. */
+export function renderGeneration(call: CallView): HTMLElement {
+  return section('Generation', h('div', { class: 'meta' }, `${call.steps.length} step${call.steps.length === 1 ? '' : 's'}`), call.steps.map(renderStep));
+}
+
+// ---- result ---------------------------------------------------------------------
 
 function isTensorSummary(x: unknown): x is TensorSummary {
   return typeof x === 'object' && x !== null && typeof (x as TensorSummary).id === 'string' && Array.isArray((x as TensorSummary).dims) && typeof (x as TensorSummary).dtype === 'string';
@@ -194,16 +304,16 @@ function renderResult(call: CallView): HTMLElement {
 }
 
 /**
- * Everything below a summary row: Input, Tokenizer, Session runs, (Generation, story 6)
- * and Result. Re-rendered wholesale when the call updates while expanded.
+ * Everything below a summary row: Input, Tokenizer, Session runs, Generation and Result.
+ * Re-rendered wholesale when the call updates while expanded, which drops any values already
+ * loaded into it; the panel owns the bus, so `ctx` is reserved for sections that request.
  */
 export function renderRowDetails(call: CallView, ctx: RenderContext): HTMLElement {
-  void ctx; // Unused until story 6's Generation section and value loading need the bus.
+  void ctx;
   const sections: Child[] = [renderInput(call)];
   if (call.tokenize.length > 0) sections.push(section('Tokenizer', call.tokenize.map(renderTokenize)));
   if (call.runs.length > 0) sections.push(section('Session runs', call.runs.map(renderRun)));
-  // Story 6: when `call.steps.length > 0`, push `renderGeneration(call)` here (per-step token
-  // id/text and a top-k table whose `.bar` widths are set via CSSOM `style.width`).
+  if (call.steps.length > 0) sections.push(renderGeneration(call));
   sections.push(renderResult(call));
   return h('div', { class: 'details', data: { details: call.id } }, sections);
 }

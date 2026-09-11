@@ -1,10 +1,11 @@
 // @vitest-environment happy-dom
-import { afterEach, describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 import { InspectorBus } from '../src/bus';
-import type { InspectorEvent } from '../src/events';
+import type { InspectorEvent, TensorData } from '../src/events';
 import { fmtBytes, fmtDims, fmtMs, fmtNum, h } from '../src/panel/dom';
 import type { InspectorPanel } from '../src/panel/panel';
 import { mountPanel } from '../src/panel/panel';
+import { MAX_VALUES, renderTensorValues } from '../src/panel/render';
 import { adoptStyles, PANEL_CSS } from '../src/panel/styles';
 import { fixtureEvents } from './fakes';
 
@@ -24,6 +25,12 @@ const rowsOf = (p: InspectorPanel): HTMLElement[] => [...p.shadow.querySelectorA
 const click = (el: Element | null | undefined): void => {
   if (!(el instanceof HTMLElement)) throw new Error('nothing to click');
   el.click();
+};
+const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
+/** The `tr.values` directly under a tensor row, or null when nothing was loaded there. */
+const valuesUnder = (row: Element | null | undefined): HTMLElement | null => {
+  const next = row?.nextElementSibling;
+  return next instanceof HTMLElement && next.classList.contains('values') ? next : null;
 };
 
 describe('dom helpers', () => {
@@ -162,7 +169,7 @@ describe('mountPanel', () => {
     const details = p.shadow.querySelector<HTMLElement>('[data-details="c1"]');
     expect(details).not.toBeNull();
     const headings = [...(details?.querySelectorAll('h3') ?? [])].map((x) => x.textContent);
-    expect(headings).toEqual(['Input', 'Tokenizer', 'Session runs', 'Result']);
+    expect(headings).toEqual(['Input', 'Tokenizer', 'Session runs', 'Result']); // no steps, no Generation
 
     const chips = details?.querySelectorAll('.chip') ?? [];
     expect(chips).toHaveLength(7);
@@ -249,19 +256,206 @@ describe('mountPanel', () => {
     expect(badgeOf(p)).toBe('1');
   });
 
-  test('load button is inert for now (story 6) and issues no request', async () => {
+  test('expanding the generation call renders a Generation section with 3 steps and top-k rows with bars', () => {
     const bus = new InspectorBus();
-    let requests = 0;
+    const p = mount(bus, { open: true });
+    const events = fixtureEvents();
+    for (const ev of events) bus.emit(ev);
+    const perStep = events.find((e) => e.type === 'logits')?.topK.length ?? 0;
+    expect(perStep).toBeGreaterThan(0);
+    click(rowsOf(p)[1]);
+
+    const details = p.shadow.querySelector<HTMLElement>('[data-details="c2"]');
+    const headings = [...(details?.querySelectorAll('h3') ?? [])].map((x) => x.textContent);
+    expect(headings).toEqual(['Input', 'Tokenizer', 'Session runs', 'Generation', 'Result']);
+
+    const steps = [...(details?.querySelectorAll<HTMLElement>('.step') ?? [])];
+    expect(steps).toHaveLength(3);
+    expect(steps.map((s) => s.dataset.step)).toEqual(['0', '1', '2']);
+    expect(steps[0].querySelector('.step-head')?.textContent).toContain('token 1996 "the"');
+    expect(steps[0].querySelector('.step-head')?.textContent).toContain('logits t10');
+    expect(steps[2].querySelector('.step-head')?.textContent).toContain('token 5927 "brown"');
+
+    for (const step of steps) {
+      const heads = [...step.querySelectorAll('table.topk th')].map((th) => th.textContent);
+      expect(heads).toEqual(['token', 'id', 'logit', 'prob']);
+      const rows = [...step.querySelectorAll<HTMLElement>('table.topk tbody tr')];
+      expect(rows).toHaveLength(perStep);
+      for (const r of rows) {
+        expect(r.querySelector('.bar')).not.toBeNull();
+        expect(r.querySelector('.prob-text')?.textContent).toMatch(/^0\.\d+$/);
+      }
+    }
+
+    const first = steps[0].querySelector<HTMLElement>('table.topk tbody tr');
+    const cells = [...(first?.querySelectorAll('td') ?? [])].map((td) => td.textContent);
+    expect(cells[0]).toBe('the');
+    expect(cells[1]).toBe('1996');
+    expect(cells[2]).toBe('8');
+    expect(cells[3]).toContain('0.9971');
+    expect(first?.classList.contains('picked')).toBe(true);
+    const bar = first?.querySelector<HTMLElement>('.bar');
+    expect(bar?.style.width).toBe('99.7%');
+    const second = steps[0].querySelectorAll<HTMLElement>('table.topk tbody tr')[1];
+    expect(second.classList.contains('picked')).toBe(false);
+    expect(second.querySelector<HTMLElement>('.bar')?.style.width).toBe('0.1%');
+  });
+
+  test('a token event alone renders a step without a top-k table', () => {
+    const bus = new InspectorBus();
+    const p = mount(bus, { open: true });
+    bus.emit(fixtureEvents()[5]); // c2 call:start
+    bus.emit({ type: 'token', callId: 'c2', step: 0, ids: [7], text: 'x', t: 2001 });
+    click(rowsOf(p)[0]);
+    const step = p.shadow.querySelector<HTMLElement>('[data-details="c2"] .step');
+    expect(step?.querySelector('.step-head')?.textContent).toContain('token 7 "x"');
+    expect(step?.querySelector('table.topk')).toBeNull();
+    expect(step?.textContent).toContain('no logits captured');
+  });
+
+  test('no tensor request is issued before the load button is clicked; the click requests exactly that id', async () => {
+    const bus = new InspectorBus();
+    bus.handle('tensor', ({ id }) => ({ id, dtype: 'float32', dims: [3], data: new Float32Array([1.5, -2, 3]) }));
+    const request = vi.spyOn(bus, 'request');
+    const p = mount(bus, { open: true });
+    for (const ev of fixtureEvents()) bus.emit(ev);
+    click(rowsOf(p)[0]);
+    click(rowsOf(p)[1]);
+    expect(request).not.toHaveBeenCalled();
+    expect(p.shadow.querySelectorAll('tr.values')).toHaveLength(0);
+
+    const button = p.shadow.querySelector<HTMLButtonElement>('[data-details="c1"] [data-run="r1"] [data-tensor="t4"] button[data-action="load"]');
+    expect(button?.dataset.tensor).toBe('t4');
+    click(button);
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(request).toHaveBeenCalledWith('tensor', { id: 't4' });
+    expect(button?.disabled).toBe(true);
+    await tick();
+    expect(button?.disabled).toBe(false);
+
+    const row = p.shadow.querySelector('[data-details="c1"] [data-run="r1"] tr[data-tensor="t4"]');
+    const values = valuesUnder(row);
+    expect(values?.dataset.values).toBe('t4');
+    expect(values?.querySelector('.values-list')?.textContent).toBe('1.5, -2, 3');
+    expect(values?.textContent).toContain('float32 [3] · 3 values');
+    expect(values?.querySelector('[data-more]')).toBeNull();
+    expect(p.shadow.querySelectorAll('tr.values')).toHaveLength(1);
+  });
+
+  test('the same tensor id appearing in Session runs and Result loads independently', async () => {
+    const bus = new InspectorBus();
+    let calls = 0;
     bus.handle('tensor', ({ id }) => {
-      requests++;
-      return { id, error: 'unknown' };
+      calls++;
+      return { id, dtype: 'float32', dims: [2], data: new Float32Array([7, 8]) };
     });
     const p = mount(bus, { open: true });
     for (const ev of fixtureEvents()) bus.emit(ev);
     click(rowsOf(p)[0]);
-    click(p.shadow.querySelector('[data-tensor="t4"] [data-action="load"]'));
-    await new Promise((r) => setTimeout(r, 0));
-    expect(requests).toBe(0);
+    const buttons = [...p.shadow.querySelectorAll<HTMLButtonElement>('[data-details="c1"] tr[data-tensor="t4"] button[data-action="load"]')];
+    expect(buttons).toHaveLength(2); // once under the run outputs, once under Result
+    click(buttons[1]);
+    await tick();
+    expect(calls).toBe(1);
+    const rows = [...p.shadow.querySelectorAll('[data-details="c1"] tr[data-tensor="t4"]')];
+    expect(valuesUnder(rows[0])).toBeNull();
+    expect(valuesUnder(rows[1])?.querySelector('.values-list')?.textContent).toBe('7, 8');
+    click(buttons[0]);
+    await tick();
+    expect(calls).toBe(2);
+    expect(valuesUnder(rows[0])?.querySelector('.values-list')?.textContent).toBe('7, 8');
+    // A second click on the same row reuses its values cell instead of stacking another.
+    click(buttons[0]);
+    await tick();
+    expect(p.shadow.querySelectorAll('[data-details="c1"] tr.values')).toHaveLength(2);
+  });
+
+  test('a response over MAX_VALUES is truncated with a "… N more" note; bigint and string data render', async () => {
+    const bus = new InspectorBus();
+    const big = new Float32Array(MAX_VALUES + 904).map((_, i) => i);
+    bus.handle('tensor', ({ id }) => {
+      if (id === 't1') return { id, dtype: 'int64', dims: [1, 3], data: new BigInt64Array([101n, -5n, 102n]) };
+      if (id === 't2') return { id, dtype: 'string', dims: [2], data: ['[CLS]', 'the'] };
+      return { id, dtype: 'float32', dims: [1, big.length], data: big };
+    });
+    const p = mount(bus, { open: true });
+    for (const ev of fixtureEvents()) bus.emit(ev);
+    click(rowsOf(p)[0]);
+    const load = (id: string): void => click(p.shadow.querySelector(`[data-details="c1"] [data-run="r1"] tr[data-tensor="${id}"] button[data-action="load"]`));
+    load('t4');
+    load('t1');
+    load('t2');
+    await tick();
+    const under = (id: string): HTMLElement | null => valuesUnder(p.shadow.querySelector(`[data-details="c1"] [data-run="r1"] tr[data-tensor="${id}"]`));
+
+    const list = under('t4')?.querySelector('.values-list')?.textContent ?? '';
+    expect(list.split(', ')).toHaveLength(MAX_VALUES);
+    expect(list.startsWith('0, 1, 2, ')).toBe(true);
+    expect(list.endsWith(`, ${MAX_VALUES - 1}`)).toBe(true);
+    expect(under('t4')?.querySelector('[data-more]')?.textContent).toBe('… 904 more');
+    expect(under('t4')?.textContent).toContain(`${MAX_VALUES + 904} values`);
+
+    expect(under('t1')?.querySelector('.values-list')?.textContent).toBe('101, -5, 102');
+    expect(under('t1')?.textContent).toContain('int64 [1, 3]');
+    expect(under('t2')?.querySelector('.values-list')?.textContent).toBe('[CLS], the');
+  });
+
+  test('an {error} response renders the error string, and a rejected request renders its message', async () => {
+    const bus = new InspectorBus();
+    bus.handle('tensor', ({ id }) => (id === 't4' ? { id, error: 'evicted' } : Promise.reject(new Error('readback failed'))));
+    const p = mount(bus, { open: true });
+    for (const ev of fixtureEvents()) bus.emit(ev);
+    click(rowsOf(p)[0]);
+    click(p.shadow.querySelector('[data-details="c1"] [data-run="r1"] tr[data-tensor="t4"] button[data-action="load"]'));
+    click(p.shadow.querySelector('[data-details="c1"] [data-run="r1"] tr[data-tensor="t1"] button[data-action="load"]'));
+    await tick();
+    const evicted = valuesUnder(p.shadow.querySelector('[data-details="c1"] [data-run="r1"] tr[data-tensor="t4"]'));
+    expect(evicted?.querySelector('[data-values-error]')?.textContent).toBe('evicted');
+    expect(evicted?.querySelector('.values-list')).toBeNull();
+    const rejected = valuesUnder(p.shadow.querySelector('[data-details="c1"] [data-run="r1"] tr[data-tensor="t1"]'));
+    expect(rejected?.querySelector('.error')?.textContent).toBe('readback failed');
+  });
+
+  test('loading with no handler on the bus renders the bus error instead of hanging', async () => {
+    const bus = new InspectorBus();
+    const p = mount(bus, { open: true });
+    for (const ev of fixtureEvents()) bus.emit(ev);
+    click(rowsOf(p)[0]);
+    const button = p.shadow.querySelector<HTMLButtonElement>('[data-details="c1"] [data-run="r1"] tr[data-tensor="t4"] button[data-action="load"]');
+    click(button);
+    await tick();
+    const cell = valuesUnder(p.shadow.querySelector('[data-details="c1"] [data-run="r1"] tr[data-tensor="t4"]'));
+    expect(cell?.querySelector('.error')?.textContent).toContain("no handler for request 'tensor'");
+    expect(button?.disabled).toBe(false);
+  });
+
+  test('re-rendering details on an update drops loaded values (another click reloads them)', async () => {
+    const bus = new InspectorBus();
+    bus.handle('tensor', ({ id }) => ({ id, dtype: 'float32', dims: [1], data: new Float32Array([4]) }));
+    const p = mount(bus, { open: true });
+    const events = fixtureEvents().slice(0, 5);
+    for (const ev of events.slice(0, 4)) bus.emit(ev); // through run:end, no result yet
+    click(rowsOf(p)[0]);
+    click(p.shadow.querySelector('[data-details="c1"] tr[data-tensor="t4"] button[data-action="load"]'));
+    await tick();
+    expect(p.shadow.querySelectorAll('[data-details="c1"] tr.values')).toHaveLength(1);
+    bus.emit(events[4]);
+    expect(p.shadow.querySelectorAll('[data-details="c1"] tr.values')).toHaveLength(0);
+    click(p.shadow.querySelector('[data-details="c1"] [data-run="r1"] tr[data-tensor="t4"] button[data-action="load"]'));
+    await tick();
+    expect(p.shadow.querySelector('[data-details="c1"] tr.values .values-list')?.textContent).toBe('4');
+  });
+
+  test('renderTensorValues handles a DataView, an empty array and each error kind', () => {
+    const el = h('div');
+    renderTensorValues(el, { id: 'x', dtype: 'uint8', dims: [4], data: new DataView(new ArrayBuffer(4)) });
+    expect(el.textContent).toContain('empty');
+    renderTensorValues(el, { id: 'x', dtype: 'string', dims: [0], data: [] });
+    expect(el.textContent).toContain('0 values');
+    const err: TensorData = { id: 'x', error: 'disposed' };
+    renderTensorValues(el, err);
+    expect(el.querySelector('.error')?.textContent).toBe('disposed');
+    expect(el.querySelector('.values-list')).toBeNull();
   });
 
   test('destroy() removes the host and stops listening', () => {
