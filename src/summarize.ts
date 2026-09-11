@@ -67,17 +67,26 @@ function toHeadValue(v: unknown): number | string {
 }
 
 /**
+ * `.data` of a CPU-resident tensor; `null` when it is device-resident (the getter is never
+ * touched) or when reading it throws (disposed). The one sanctioned way for a wrapper to
+ * look at tensor contents synchronously.
+ */
+export function cpuData(t: TensorLike): ArrayLike<unknown> | null {
+  if (!isCpuResident(t)) return null;
+  try {
+    return t.data;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * First `n` values as plain numbers / strings (bigint → Number). `null` when the tensor is
  * not CPU-resident (the `data` getter is never touched) or when reading it throws (disposed).
  */
 export function headOf(t: TensorLike, n: number = DEFAULT_HEAD): (number | string)[] | null {
-  if (!isCpuResident(t)) return null;
-  let data: ArrayLike<unknown>;
-  try {
-    data = t.data;
-  } catch {
-    return null;
-  }
+  const data = cpuData(t);
+  if (data === null) return null;
   const len = Math.min(Math.max(0, n), data.length);
   const out: (number | string)[] = new Array<number | string>(len);
   for (let i = 0; i < len; i++) out[i] = toHeadValue(data[i]);

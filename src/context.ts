@@ -20,6 +20,12 @@ export interface InspectorOptions {
   retainLogits: boolean;
   /** Row label for `call:start`. */
   label: string;
+  /**
+   * Escape hatch for the generation wrapper: when the host's Transformers.js rejects a plain
+   * array as `logits_processor`, pass its `LogitsProcessorList` class and a real list is
+   * built with `.push` instead.
+   */
+  transformers?: { LogitsProcessorList: new () => { push(p: unknown): void } };
 }
 
 export const DEFAULT_TOP_K = 10;
@@ -40,6 +46,7 @@ export function resolveOptions(partial: Partial<InspectorOptions> = {}): Inspect
     const v = partial[key];
     if (v !== undefined) (out as Record<keyof InspectorOptions, unknown>)[key] = v;
   }
+  if (partial.transformers !== undefined) out.transformers = partial.transformers;
   return out;
 }
 
