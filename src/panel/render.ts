@@ -106,6 +106,23 @@ function renderInput(call: CallView): HTMLElement {
   return section('Input', h('div', { class: 'meta' }, `${input.kind}${call.task ? ` · task ${call.task}` : ''}`), body);
 }
 
+/**
+ * A decoded token string as children: `'∅'` for null; otherwise the text with any leading and
+ * trailing whitespace run wrapped in `span.ws` (a tinted background under the real space
+ * character, so copy/paste stays intact).
+ */
+export function tokenText(s: string | null): Child[] {
+  if (s === null) return ['∅'];
+  const m = /^(\s*)([\s\S]*?)(\s*)$/.exec(s);
+  if (!m) return [s];
+  const [, lead, mid, trail] = m;
+  const out: Child[] = [];
+  if (lead) out.push(h('span', { class: 'ws' }, lead));
+  if (mid) out.push(mid);
+  if (trail) out.push(h('span', { class: 'ws' }, trail));
+  return out;
+}
+
 function renderTokenize(ev: TokenizeEvent, index: number): HTMLElement {
   const rows = ev.ids.map((ids, row) =>
     h(
@@ -113,7 +130,8 @@ function renderTokenize(ev: TokenizeEvent, index: number): HTMLElement {
       { class: 'tokens', data: { row } },
       ids.map((id, i) => {
         const str = ev.tokens[row]?.[i] ?? null;
-        return h('span', { class: 'chip', title: `id ${id}` }, h('span', { class: 'chip-id' }, String(id)), h('span', { class: 'chip-str' }, str ?? '∅'));
+        const raw = ev.raw?.[row]?.[i] ?? null;
+        return h('span', { class: 'chip', title: `id ${id} · raw ${raw ?? '∅'}` }, h('span', { class: 'chip-id' }, String(id)), h('span', { class: 'chip-str' }, tokenText(str)));
       }),
     ),
   );
@@ -249,7 +267,7 @@ function renderTopK(entries: TopKEntry[], picked: number[]): HTMLElement {
         return h(
           'tr',
           { class: picked.includes(e.id) ? 'picked' : undefined, data: { token: e.id } },
-          h('td', { class: 'tok' }, e.token ?? '∅'),
+          h('td', { class: 'tok', title: e.raw ?? '' }, tokenText(e.token)),
           h('td', { class: 'num' }, String(e.id)),
           h('td', { class: 'num' }, fmtNum(e.logit)),
           h('td', { class: 'prob' }, h('span', { class: 'prob-text' }, fmtNum(e.prob)), bar),
@@ -261,12 +279,12 @@ function renderTopK(entries: TopKEntry[], picked: number[]): HTMLElement {
 
 function renderStep(step: StepView): HTMLElement {
   const ids = step.ids ?? [];
-  const tokenText = ids.length ? `token ${ids.join(', ')}${step.text !== undefined && step.text !== null ? ` "${step.text}"` : ''}` : 'no token yet';
+  const tokenLabel = ids.length ? `token ${ids.join(', ')}${step.text !== undefined && step.text !== null ? ` "${step.text}"` : ''}` : 'no token yet';
   const logitsText = step.tensorId ? ` · logits ${step.tensorId}` : '';
   return h(
     'div',
     { class: 'step', data: { step: step.step } },
-    h('div', { class: 'meta step-head' }, `step ${step.step} · ${tokenText}${logitsText}`),
+    h('div', { class: 'meta step-head' }, `step ${step.step} · ${tokenLabel}${logitsText}`),
     step.topK ? (step.topK.length ? renderTopK(step.topK, ids) : h('div', { class: 'muted' }, 'empty top-k')) : h('div', { class: 'muted' }, 'no logits captured'),
   );
 }

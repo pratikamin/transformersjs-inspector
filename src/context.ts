@@ -69,15 +69,53 @@ function countersOf(bus: InspectorBus): IdCounters {
   return (holder[ID_COUNTERS] ??= { calls: 0, runs: 0 });
 }
 
+export interface TokenStrings {
+  /** The vocab string (`id_to_token`), e.g. `▁word`, `##ing`, `Ġfilm`; `null` when unknown. */
+  raw: string | null;
+  /** The decoded display text, e.g. `word`, `ing`, ` film`; `null` when neither lookup worked. */
+  text: string | null;
+}
+
+/** `tokenStrings` memo entries before it is cleared. */
+export const TOKEN_CACHE_MAX = 4096;
+
+const DECODE_ONE = Object.freeze({ skip_special_tokens: false, clean_up_tokenization_spaces: false });
+
+function lookupTokenStrings(tok: TokenizerLike, id: number): TokenStrings {
+  let raw: string | null = null;
+  try {
+    const inner = tok._tokenizer;
+    if (inner && typeof inner.id_to_token === 'function') {
+      const s = inner.id_to_token(id);
+      if (typeof s === 'string') raw = s;
+    }
+  } catch {
+    // an unknown id or a tokenizer whose internals moved: no vocab string
+  }
+  let text: string | null = raw;
+  try {
+    if (typeof tok.decode === 'function') {
+      const s = tok.decode([id], DECODE_ONE);
+      if (typeof s === 'string') text = s;
+    }
+  } catch {
+    // decode failed: show the vocab string instead
+  }
+  return { raw, text };
+}
+
 export class WrapContext {
   readonly bus: InspectorBus;
   readonly store: TensorStore;
   readonly opts: InspectorOptions;
   /** Set by the pipeline wrapper for the duration of one `pipe._call`; events emitted meanwhile carry it. */
   currentCallId: string | null = null;
-  /** Used by `tokenToString`; the tokenizer wrapper sets it, `attach()` may set it earlier. */
+  /** Used by `tokenStrings`; the tokenizer wrapper sets it, `attach()` may set it earlier. */
   tokenizer: TokenizerLike | null = null;
   private readonly counters: IdCounters;
+  /** `tokenStrings` memo, valid for `tokenCacheFor` only (the tokenizer may be swapped between calls). */
+  private readonly tokenCache = new Map<number, TokenStrings>();
+  private tokenCacheFor: TokenizerLike | null = null;
 
   constructor(bus: InspectorBus, store: TensorStore, opts: Partial<InspectorOptions> = {}) {
     this.bus = bus;
@@ -97,26 +135,30 @@ export class WrapContext {
   }
 
   /**
-   * Token string for one id: `_tokenizer.id_to_token(id)` (the raw vocab entry, as the
-   * spike verified), else `decode([id])`, else `null`. Never throws.
+   * Both strings for one id: `raw` is the vocab entry (`_tokenizer.id_to_token(id)`, as the
+   * spike verified; `null` when unknown), `text` is the decoded display text
+   * (`decode([id], { skip_special_tokens: false, clean_up_tokenization_spaces: false })`, falling
+   * back to `raw` when `decode` is missing, throws or returns a non-string). Never throws.
+   * Memoised per tokenizer: generation asks `topK` times per step.
    */
-  tokenToString(id: number): string | null {
+  tokenStrings(id: number): TokenStrings {
     const tok = this.tokenizer;
-    if (!tok) return null;
-    try {
-      const inner = tok._tokenizer;
-      if (inner && typeof inner.id_to_token === 'function') {
-        const s = inner.id_to_token(id);
-        if (typeof s === 'string') return s;
-      }
-      if (typeof tok.decode === 'function') {
-        const s = tok.decode([id]);
-        if (typeof s === 'string') return s;
-      }
-    } catch {
-      // fall through: an unknown id or a tokenizer whose internals moved
+    if (!tok) return { raw: null, text: null };
+    if (this.tokenCacheFor !== tok) {
+      this.tokenCache.clear();
+      this.tokenCacheFor = tok;
     }
-    return null;
+    const hit = this.tokenCache.get(id);
+    if (hit) return hit;
+    const out = lookupTokenStrings(tok, id);
+    if (this.tokenCache.size >= TOKEN_CACHE_MAX) this.tokenCache.clear();
+    this.tokenCache.set(id, out);
+    return out;
+  }
+
+  /** `tokenStrings(id).text`, for callers that only need the display text. */
+  tokenToString(id: number): string | null {
+    return this.tokenStrings(id).text;
   }
 
   now(): number {

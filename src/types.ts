@@ -22,7 +22,7 @@ export interface SessionLike {
 export interface TokenizerLike {
   _call(text: unknown, opts?: unknown): { input_ids: TensorLike; [k: string]: unknown };
   _tokenizer?: { id_to_token?(id: number): string | undefined };
-  decode?(ids: number[]): string;
+  decode?(ids: number[], opts?: { skip_special_tokens?: boolean; clean_up_tokenization_spaces?: boolean }): string;
 }
 
 export interface StreamerLike {

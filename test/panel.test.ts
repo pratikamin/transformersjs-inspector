@@ -175,6 +175,7 @@ describe('mountPanel', () => {
     expect(chips).toHaveLength(7);
     expect(chips[0].querySelector('.chip-id')?.textContent).toBe('101');
     expect(chips[0].querySelector('.chip-str')?.textContent).toBe('[CLS]');
+    expect(chips[0].getAttribute('title')).toBe('id 101 · raw [CLS]');
     expect(chips[1].querySelector('.chip-str')?.textContent).toBe('the');
 
     const tensorRows = [...(details?.querySelectorAll<HTMLElement>('[data-tensor]') ?? [])];
@@ -290,6 +291,7 @@ describe('mountPanel', () => {
     const first = steps[0].querySelector<HTMLElement>('table.topk tbody tr');
     const cells = [...(first?.querySelectorAll('td') ?? [])].map((td) => td.textContent);
     expect(cells[0]).toBe('the');
+    expect(first?.querySelector('td.tok')?.getAttribute('title')).toBe('the');
     expect(cells[1]).toBe('1996');
     expect(cells[2]).toBe('8');
     expect(cells[3]).toContain('0.9971');
@@ -299,6 +301,48 @@ describe('mountPanel', () => {
     const second = steps[0].querySelectorAll<HTMLElement>('table.topk tbody tr')[1];
     expect(second.classList.contains('picked')).toBe(false);
     expect(second.querySelector<HTMLElement>('.bar')?.style.width).toBe('0.1%');
+  });
+
+  test('decoded token text: whitespace runs become span.ws, the vocab string is the title, old events still render', () => {
+    const bus = new InspectorBus();
+    const p = mount(bus, { open: true });
+    bus.emit({ type: 'call:start', callId: 'c1', label: 'text-generation', task: 'text-generation', input: { kind: 'text', text: 'a film' }, t: 1 });
+    bus.emit({ type: 'tokenize', callId: 'c1', text: 'a film', ids: [[64, 2143, 2075]], tokens: [['a', ' film', 'ing']], raw: [['a', 'Ġfilm', '##ing']], ms: 0.1, t: 2 });
+    bus.emit({
+      type: 'logits',
+      callId: 'c1',
+      step: 0,
+      vocab: 8,
+      topK: [
+        { id: 2143, token: ' film', logit: 2, prob: 0.6, raw: 'Ġfilm' },
+        { id: 7, token: null, logit: 1, prob: 0.4 }, // a v0.1 entry: no raw
+      ],
+      tensorId: null,
+      t: 3,
+    });
+    bus.emit({ type: 'token', callId: 'c1', step: 0, ids: [2143], text: ' film', t: 4 }); // v0.1 shape: no raw
+    click(rowsOf(p)[0]);
+
+    const chips = [...p.shadow.querySelectorAll<HTMLElement>('.chip')];
+    expect(chips).toHaveLength(3);
+    const film = chips[1].querySelector<HTMLElement>('.chip-str');
+    expect(film?.textContent).toBe(' film');
+    const ws = film?.querySelectorAll('span.ws') ?? [];
+    expect(ws).toHaveLength(1);
+    expect(ws[0].textContent).toBe(' ');
+    expect(chips[1].getAttribute('title')).toBe('id 2143 · raw Ġfilm');
+    expect(chips[2].querySelector('.chip-str')?.textContent).toBe('ing');
+    expect(chips[2].querySelectorAll('span.ws')).toHaveLength(0);
+    expect(chips[2].getAttribute('title')).toBe('id 2075 · raw ##ing');
+
+    const toks = [...p.shadow.querySelectorAll<HTMLElement>('table.topk td.tok')];
+    expect(toks).toHaveLength(2);
+    expect(toks[0].textContent).toBe(' film');
+    expect(toks[0].getAttribute('title')).toBe('Ġfilm');
+    expect(toks[0].querySelectorAll('span.ws')).toHaveLength(1);
+    expect(toks[1].textContent).toBe('∅');
+    expect(toks[1].getAttribute('title')).toBe('');
+    expect(p.shadow.querySelector('.step-head')?.textContent).toContain('token 2143 " film"');
   });
 
   test('a token event alone renders a step without a top-k table', () => {

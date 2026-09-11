@@ -119,7 +119,8 @@ describe('wrapGenerate', () => {
       expect(e.callId).toBe('c1');
       expect(e.vocab).toBe(FAKE_VOCAB_SIZE);
       expect(e.topK).toHaveLength(10);
-      expect(e.topK[0]).toMatchObject({ id: FAKE_PICKS[step], token: PICK_TOKENS[step], logit: 8 });
+      expect(e.topK[0]).toMatchObject({ id: FAKE_PICKS[step], token: PICK_TOKENS[step], raw: PICK_TOKENS[step], logit: 8 });
+      for (const entry of e.topK) expect(entry.raw === null || typeof entry.raw === 'string').toBe(true);
       expect(e.topK[0].prob).toBeGreaterThan(0.25); // the fake's peak at 8 against ~11.7k entries at -1
       expect(e.topK[1].prob).toBeLessThan(0.001);
       expect(e.tensorId).toBeNull();
@@ -129,6 +130,7 @@ describe('wrapGenerate', () => {
       expect(e.callId).toBe('c1');
       expect(e.ids).toEqual([FAKE_PICKS[step]]);
       expect(e.text).toBe(PICK_TOKENS[step]);
+      expect(e.raw).toBe(PICK_TOKENS[step]);
       expect(e.ids.every((id) => typeof id === 'number')).toBe(true);
     });
     // token n is emitted after logits n and before logits n+1

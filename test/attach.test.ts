@@ -47,6 +47,7 @@ describe('attach: encoder pipeline', () => {
     expect(tok.text).toBe(TEXT);
     expect(tok.ids).toEqual([IDS]);
     expect(tok.tokens[0]).toEqual(['[CLS]', 'the', 'quick', 'brown', 'fox', '.', '[SEP]']);
+    expect(tok.raw).toEqual(tok.tokens);
     const [runStart] = find(bus, 'run:start');
     expect(runStart.session).toBe('model');
     expect(runStart.inputs.map((s) => s.name)).toEqual(['input_ids', 'attention_mask', 'token_type_ids']);
@@ -260,6 +261,11 @@ describe('attach: generative pipeline', () => {
     expect(find(bus, 'logits').map((e) => e.topK[0].id)).toEqual(FAKE_PICKS.slice(0, 3));
     expect(find(bus, 'token').map((e) => e.ids)).toEqual(FAKE_PICKS.slice(0, 3).map((id) => [id]));
     expect(find(bus, 'token').map((e) => e.text)).toEqual(['the', 'quick', 'brown']);
+    expect(find(bus, 'token').map((e) => e.raw)).toEqual(['the', 'quick', 'brown']);
+    // `raw` rides along on every tokenize, logits and token event (v1.1 story 1)
+    for (const e of find(bus, 'tokenize')) expect(e.raw).toEqual(e.tokens);
+    for (const e of find(bus, 'logits')) for (const entry of e.topK) expect(entry).toHaveProperty('raw');
+    for (const e of find(bus, 'token')) expect(e).toHaveProperty('raw');
     expect(find(bus, 'result')[0].result).toEqual([{ generated_text: 'hi the quick brown' }]);
     const runIds = find(bus, 'run:start').map((e) => e.runId);
     expect(new Set(runIds).size).toBe(3);

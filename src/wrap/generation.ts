@@ -100,7 +100,10 @@ class GenerationCapture {
       vocab = dims.length > 0 ? Number(dims[dims.length - 1]) : (data?.length ?? 0);
       if (data !== null && vocab > 0) {
         const row = rowZero(data, vocab);
-        topK = topKFromLogits(row, ctx.opts.topK).entries.map((e) => ({ ...e, token: ctx.tokenToString(e.id) }));
+        topK = topKFromLogits(row, ctx.opts.topK).entries.map((e) => {
+          const s = ctx.tokenStrings(e.id);
+          return { ...e, token: s.text, raw: s.raw };
+        });
       }
       if (ctx.opts.retainLogits) tensorId = ctx.store.put(logits, 'logits').id;
     }
@@ -110,10 +113,16 @@ class GenerationCapture {
   private emitToken(value: unknown, step: number): void {
     const ctx = this.ctx;
     const ids = idsOfRowZero(value);
-    const strs = ids.map((id) => ctx.tokenToString(id));
-    const text = strs.some((s) => s !== null) ? strs.map((s) => s ?? '').join('') : null;
-    ctx.bus.emit({ type: 'token', callId: ctx.currentCallId, step, ids, text, t: ctx.now() });
+    const strs = ids.map((id) => ctx.tokenStrings(id));
+    const text = joinParts(strs.map((s) => s.text));
+    const raw = joinParts(strs.map((s) => s.raw));
+    ctx.bus.emit({ type: 'token', callId: ctx.currentCallId, step, ids, text, raw, t: ctx.now() });
   }
+}
+
+/** The parts joined with unknown ids as `''`; `null` when every part is `null`. */
+function joinParts(parts: (string | null)[]): string | null {
+  return parts.some((s) => s !== null) ? parts.map((s) => s ?? '').join('') : null;
 }
 
 /** Batch row 0 of a `[batch, vocab]` buffer without copying when it is a typed array. */

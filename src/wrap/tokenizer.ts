@@ -60,8 +60,10 @@ export function wrapTokenizer(tok: TokenizerLike, ctx: WrapContext): () => void 
     const result = original.call(tok, text, opts);
     const ms = ctx.now() - t0;
     const ids = typeof result === 'object' && result !== null && isTensorLike(result.input_ids) ? idsFrom(result.input_ids) : [];
-    const tokens = ids.map((row) => row.map((id) => ctx.tokenToString(id)));
-    ctx.bus.emit({ type: 'tokenize', callId: ctx.currentCallId, text: textOf(text), ids, tokens, ms, t: ctx.now() });
+    const strs = ids.map((row) => row.map((id) => ctx.tokenStrings(id)));
+    const tokens = strs.map((row) => row.map((s) => s.text));
+    const raw = strs.map((row) => row.map((s) => s.raw));
+    ctx.bus.emit({ type: 'tokenize', callId: ctx.currentCallId, text: textOf(text), ids, tokens, raw, ms, t: ctx.now() });
     return result;
   };
   const restore = replaceMethod(tok, '_call', wrapped);

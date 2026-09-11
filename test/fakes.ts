@@ -141,11 +141,24 @@ export function fakeEncoderSession(): FakeSession {
 // ---- tokenizer -------------------------------------------------------------
 
 const SPECIAL = { '[PAD]': 0, '[UNK]': 100, '[CLS]': 101, '[SEP]': 102 } as const;
-const SEED_VOCAB: Record<string, number> = { the: 1996, quick: 7742, brown: 5927, fox: 2673, '.': 1012, hi: 7632, hello: 7592, world: 2088 };
+/** `##ing` (WordPiece continuation) and `Ġfilm` (byte-level BPE leading space) are decode-only: `encode` never emits them. */
+const SEED_VOCAB: Record<string, number> = { the: 1996, quick: 7742, brown: 5927, fox: 2673, '.': 1012, hi: 7632, hello: 7592, world: 2088, '##ing': 2075, 'Ġfilm': 2143 };
+
+interface DecodeOpts {
+  skip_special_tokens?: boolean;
+  clean_up_tokenization_spaces?: boolean;
+}
+
+/** One vocab string as the real decoders render it: `##ing` → `ing`, `Ġfilm` → ` film`, `[CLS]` → `[CLS]`. */
+function decodePiece(raw: string): string {
+  if (raw.startsWith('##')) return raw.slice(2);
+  if (raw.startsWith('Ġ')) return ` ${raw.slice(1)}`;
+  return raw;
+}
 
 export interface FakeTokenizer extends TokenizerLike {
   _tokenizer: { id_to_token(id: number): string | undefined; token_to_id(token: string): number | undefined };
-  decode(ids: number[], opts?: unknown): string;
+  decode(ids: number[], opts?: DecodeOpts): string;
   encode(text: string): number[];
   calls: unknown[];
 }
@@ -175,11 +188,17 @@ export function fakeTokenizer(): FakeTokenizer {
       token_to_id: (token) => vocab.get(token),
     },
     encode,
-    decode(ids) {
-      return ids
-        .map((id) => inverse.get(id) ?? '[UNK]')
-        .filter((t) => !(t in SPECIAL))
-        .join(' ');
+    /**
+     * Default (no opts): specials dropped, pieces joined with spaces, so `generated_text`
+     * fixtures hold. `skip_special_tokens: false` keeps the specials;
+     * `clean_up_tokenization_spaces: false` renders each piece like the real decoders and
+     * joins them as-is (the shape the inspector uses for one id at a time).
+     */
+    decode(ids, opts) {
+      const raws = ids.map((id) => inverse.get(id) ?? '[UNK]');
+      const kept = opts?.skip_special_tokens === false ? raws : raws.filter((t) => !(t in SPECIAL));
+      if (opts?.clean_up_tokenization_spaces === false) return kept.map(decodePiece).join('');
+      return kept.join(' ');
     },
     _call(text, opts) {
       tok.calls.push({ text, opts });
@@ -368,14 +387,14 @@ function topK(step: number): TopKEntry[] {
   const picks = [1996, 7742, 5927];
   const tokens = ['the', 'quick', 'brown'];
   const chosen = step % 3;
-  const entries: TopKEntry[] = [{ id: picks[chosen], token: tokens[chosen], logit: 8, prob: 0.9971 }];
+  const entries: TopKEntry[] = [{ id: picks[chosen], token: tokens[chosen], logit: 8, prob: 0.9971, raw: tokens[chosen] }];
   const others = [
     [0, '[PAD]'],
     [102, '[SEP]'],
     [7632, 'hi'],
     [2088, 'world'],
   ] as const;
-  for (let i = 0; i < 4; i++) entries.push({ id: others[i][0], token: others[i][1], logit: -1 - i, prob: 0.0012 / (i + 1) });
+  for (let i = 0; i < 4; i++) entries.push({ id: others[i][0], token: others[i][1], logit: -1 - i, prob: 0.0012 / (i + 1), raw: others[i][1] });
   return entries;
 }
 
@@ -390,7 +409,7 @@ export function fixtureEvents(): InspectorEvent[] {
   const embedTokens = ['[CLS]', 'the', 'quick', 'brown', 'fox', '.', '[SEP]'];
   const events: InspectorEvent[] = [
     { type: 'call:start', callId: 'c1', label: 'feature-extraction', task: 'feature-extraction', input: { kind: 'text', text: embedText }, t: 1000 },
-    { type: 'tokenize', callId: 'c1', text: embedText, ids: [embedIds], tokens: [embedTokens], ms: 0.4, t: 1000.5 },
+    { type: 'tokenize', callId: 'c1', text: embedText, ids: [embedIds], tokens: [embedTokens], raw: [embedTokens], ms: 0.4, t: 1000.5 },
     {
       type: 'run:start',
       callId: 'c1',
@@ -425,7 +444,7 @@ export function fixtureEvents(): InspectorEvent[] {
   let t = 2000;
   events.push(
     { type: 'call:start', callId: 'c2', label: 'text-generation', task: 'text-generation', input: { kind: 'text', text: genText }, t },
-    { type: 'tokenize', callId: 'c2', text: genText, ids: [promptIds], tokens: [promptTokens], ms: 0.3, t: (t += 0.3) },
+    { type: 'tokenize', callId: 'c2', text: genText, ids: [promptIds], tokens: [promptTokens], raw: [promptTokens], ms: 0.3, t: (t += 0.3) },
   );
   for (let step = 0; step < 3; step++) {
     const N = promptIds.length + step; // sequence length before this step
@@ -463,7 +482,7 @@ export function fixtureEvents(): InspectorEvent[] {
     });
     events.push(
       { type: 'logits', callId: 'c2', step, vocab: 128256, topK: topK(step), tensorId: logitsId, t: (t += 0.2) },
-      { type: 'token', callId: 'c2', step, ids: [picks[step]], text: pickTokens[step], t: (t += 0.1) },
+      { type: 'token', callId: 'c2', step, ids: [picks[step]], text: pickTokens[step], raw: pickTokens[step], t: (t += 0.1) },
     );
   }
   events.push({ type: 'result', callId: 'c2', result: [{ generated_text: 'hi the quick brown' }], ms: 25.3, error: null, t: t + 1 });
