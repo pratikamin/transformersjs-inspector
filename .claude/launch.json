@@ -15,7 +15,7 @@
     },
     {
       "name": "demo",
-      "runtimeExecutable": "/Users/pratikamin/.nvm/versions/node/v22.14.0/bin/npm",
+      "runtimeExecutable": "npm",
       "runtimeArgs": [
         "run",
         "dev"
