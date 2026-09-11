@@ -12,11 +12,13 @@ import type { Locator, Page } from '@playwright/test';
 export const PROFILE_DIR = fileURLToPath(new URL('../.cache/pw-profile', import.meta.url));
 
 export const test = base.extend({
-  context: async ({ baseURL }, use) => {
+  context: async ({ baseURL, viewport, deviceScaleFactor }, use) => {
+    // `viewport` comes from playwright.config.ts (1280x900); a spec may `test.use()` both.
     const context = await chromium.launchPersistentContext(PROFILE_DIR, {
       headless: true,
       baseURL,
-      viewport: { width: 1280, height: 900 },
+      viewport,
+      deviceScaleFactor,
     });
     await use(context);
     await context.close();

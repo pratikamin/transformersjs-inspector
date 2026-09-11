@@ -309,7 +309,7 @@
         "README.md covers: one-paragraph purpose, attach() usage, options table, event schema pointer, zero-touch preload with the device:'auto' caveat, worker usage, what is not visible (no per-layer activations), development commands and the two fixture models",
         "npm run build:demo produces dist-demo/index.html; npm test, npm run typecheck and npm run lint pass"
       ],
-      "passes": false
+      "passes": true
     }
   ]
 }

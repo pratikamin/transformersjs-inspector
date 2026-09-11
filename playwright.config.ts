@@ -1,6 +1,7 @@
 import { defineConfig } from '@playwright/test';
 
 const BASE_URL = 'http://localhost:5173';
+const SCREENSHOTS = '**/screenshots.spec.ts';
 
 export default defineConfig({
   testDir: 'e2e',
@@ -9,8 +10,13 @@ export default defineConfig({
   retries: 0,
   workers: 1,
   reporter: 'list',
-  use: { baseURL: BASE_URL },
-  projects: [{ name: 'chromium' }],
+  use: { baseURL: BASE_URL, viewport: { width: 1280, height: 900 } },
+  projects: [
+    /** `npm run e2e`: the verification suite; never rewrites `docs/img/`. */
+    { name: 'chromium', testIgnore: SCREENSHOTS },
+    /** `npm run screenshots`: the README images, at device scale factor 2. */
+    { name: 'screenshots', testMatch: SCREENSHOTS },
+  ],
   webServer: {
     command: 'npm run dev',
     url: BASE_URL,

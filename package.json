@@ -2,9 +2,51 @@
   "name": "transformersjs-inspector",
   "version": "0.1.0",
   "description": "A Network-tab-style inspector for Transformers.js pipelines: sessions, tokenizer, per-step logits, results.",
+  "license": "MIT",
+  "author": "Pratik Amin",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pratikamin/transformersjs-inspector.git"
+  },
+  "homepage": "https://github.com/pratikamin/transformersjs-inspector#readme",
+  "bugs": {
+    "url": "https://github.com/pratikamin/transformersjs-inspector/issues"
+  },
+  "keywords": [
+    "transformers.js",
+    "transformersjs",
+    "huggingface",
+    "onnxruntime-web",
+    "onnx",
+    "inspector",
+    "devtools",
+    "debugging",
+    "logits",
+    "tokenizer",
+    "webgpu",
+    "wasm",
+    "browser",
+    "machine-learning"
+  ],
   "type": "module",
   "engines": {
     "node": ">=20"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./preload": {
+      "types": "./dist/preload.d.ts",
+      "import": "./dist/preload.js"
+    },
+    "./worker": {
+      "types": "./dist/worker.d.ts",
+      "import": "./dist/worker.js"
+    }
   },
   "files": [
     "dist"
@@ -21,8 +63,8 @@
     "lint": "eslint .",
     "build": "vite build && tsc -p tsconfig.build.json",
     "build:demo": "vite build --config vite.demo.config.ts",
-    "e2e": "playwright test",
-    "screenshots": "playwright test e2e/screenshots.spec.ts"
+    "e2e": "playwright test --project=chromium",
+    "screenshots": "playwright test --project=screenshots"
   },
   "peerDependencies": {
     "@huggingface/transformers": ">=4 <5"

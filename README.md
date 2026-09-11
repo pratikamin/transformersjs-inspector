@@ -1,10 +1,100 @@
 # transformersjs-inspector
 
-A "Network tab" for local Transformers.js (4.x) model calls: `attach(pipe)` wraps the pipeline
-the page already holds and renders every call (tokenizer ids, per-session input/output
-tensors, per-step logits, the decoded result) in a shadow-DOM panel. No runtime dependencies.
+A "Network tab" for local model calls. When a page runs a [Transformers.js](https://github.com/huggingface/transformers.js)
+model in the browser, everything between the user's text and the model's answer is
+invisible. `attach(pipe)` wraps the pipeline instance the page already holds and renders
+every call as a row in a shadow-DOM panel: the raw input, the tokenizer's ids and token
+strings, each named input and output tensor of every ONNX session run (dtype, shape, a
+preview of the values, the full values on demand), per-step top-k logits for text
+generation, and the pipeline's decoded result.
 
-Full usage docs land with the packaging phase; until then `docs/02-plan.md` is the reference.
+Zero runtime dependencies. Nothing on disk is patched; every hook is a runtime wrap of a
+method on an instance Transformers.js exposes. Nothing leaves the tab.
+
+**Status:** v0.1.0, verified against `@huggingface/transformers` 4.2.0 (Transformers.js
+4.x only). Not yet published to npm; the CDN URLs below resolve once it is.
+
+## 30-second usage
+
+Wrap the pipeline right after `pipeline()` resolves. The panel mounts itself in the bottom
+right corner of the page, collapsed to a badge that counts calls.
+
+npm / ESM:
+
+```bash
+npm install transformersjs-inspector
+```
+
+```ts
+import { pipeline } from '@huggingface/transformers';
+import { attach } from 'transformersjs-inspector';
+
+const pipe = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
+const handle = attach(pipe);
+
+await pipe('The inspector sees everything.', { pooling: 'mean', normalize: true });
+// Open the panel: one row, expand it for tokens, tensors and the result.
+
+handle.detach(); // restores every wrapped method; idempotent
+```
+
+Script tag, with Transformers.js from a CDN:
+
+```html
+<script type="module">
+  import { pipeline } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.2.0';
+  import { attach } from 'https://cdn.jsdelivr.net/npm/transformersjs-inspector@0.1.0/dist/index.js';
+
+  const pipe = await pipeline('text-generation', 'onnx-community/tiny-random-LlamaForCausalLM-ONNX');
+  attach(pipe);
+  await pipe('hi', { max_new_tokens: 3 });
+</script>
+```
+
+`attach()` throws `InspectorError` if the argument is not a Transformers.js pipeline (it
+duck-types `pipe.model.sessions`). It works on any pipeline whose model runs through
+`model.sessions[name].run`, i.e. every ONNX-backed pipeline in 4.x; the tokenizer and
+generation wrappers are added when `pipe.tokenizer` and `model.generate` exist.
+
+## What the panel shows
+
+Feature extraction (`Xenova/all-MiniLM-L6-v2`): the tokenizer chips, the session run with
+its three `int64 [1, 7]` inputs and the `float32 [1, 7, 384]` output, and the values of
+`last_hidden_state` after clicking **Load values**.
+
+![Panel: feature extraction with tokens, session tensors and loaded values](docs/img/panel-embedding.png)
+
+Text generation (`onnx-community/tiny-random-LlamaForCausalLM-ONNX`, `max_new_tokens: 3`):
+one block per generated token with the top-k table the sampler saw, the picked row
+highlighted, and the pipeline's decoded result. (The model is randomly initialised, hence the
+flat distribution and the repeated token.)
+
+![Panel: text generation with per-step top-k](docs/img/panel-generation.png)
+
+How it is organised:
+
+- **One row per pipeline call**: sequence number, label (`task · model_type` by default),
+  an excerpt of the input, wall time, status dot. Click to expand. The header badge counts
+  calls; while the panel is collapsed only the badge updates.
+- **Input**: text (truncated to 2000 chars) or texts; images and audio are described by
+  metadata only (size, channels, sample count).
+- **Tokenizer**: every `tokenizer(text)` call during the row, as `id / token` chips.
+- **Session runs**: one block per `session.run` (a decoder-only model produces one per
+  generated token), each with an Inputs and an Outputs table: `name`, `dtype`, `dims`,
+  `location` (`cpu`, `gpu-buffer`, ...), `bytes`, and `head`, the first 8 values. Values
+  are read eagerly only for CPU-resident tensors and only those 8.
+- **Load values**: fetches the full tensor by id through the bus from a byte-budgeted
+  store (64 MiB, LRU) and renders up to 4096 values. A GPU-resident tensor is copied back
+  only when you click; a tensor evicted from the store reports `evicted`.
+- **Generation**: per step, the token id and string that was picked and a top-k table
+  (`token`, `id`, `logit`, `prob`, 10 rows by default) taken from a logits processor, so it
+  reflects what the sampler saw after repetition penalties and the like. Raw logits are still
+  on the session run row.
+- **Result**: the pipeline's return value as JSON, with tensors replaced by `$tensor`
+  markers and listed in a table above it.
+
+Rows that arrive without a pipeline call (the preload path, or a direct `model.sessions`
+call) are shown as `direct · <session>` rows with only the session run.
 
 ## Zero-touch preload
 
@@ -15,7 +105,7 @@ evaluates, whose `InferenceSession.create` wraps every session's `run`. Load it 
 script **before** the script that loads Transformers.js:
 
 ```html
-<script type="module" src="https://cdn.jsdelivr.net/npm/transformersjs-inspector/dist/preload.js"></script>
+<script type="module" src="https://cdn.jsdelivr.net/npm/transformersjs-inspector@0.1.0/dist/preload.js"></script>
 <script type="module">
   import { pipeline } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.2.0';
   const pipe = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', { device: 'auto' });
@@ -25,8 +115,10 @@ script **before** the script that loads Transformers.js:
 ```
 
 Module scripts execute in document order, so the shim is in place before Transformers.js
-picks its runtime; the bundled preload entry (`demo/preload.html`) behaves the same way. See
-`e2e/preload.spec.ts` for the page that proves it.
+picks its runtime. From a bundler, `import 'transformersjs-inspector/preload'` must land in a
+chunk that evaluates before the one importing Transformers.js; the package marks
+`dist/preload.js` as having side effects so it is not tree-shaken. See `demo/preload.html`
+and `e2e/preload.spec.ts` for the page that proves it.
 
 Three caveats, all from `docs/01-research.md`:
 
@@ -47,6 +139,146 @@ Three caveats, all from `docs/01-research.md`:
   carry no input text, tokenizer ids, per-step logits or decoded result; those need `attach()`.
   Both share one bus and one panel, so a page may use both.
 
+## Web Workers
+
+Many pages run the pipeline in a worker. `attach()` then lives in the worker and the panel on
+the page, joined by the same `InspectorBus` over `postMessage`. **Load values** still works:
+the page bus forwards the tensor request to the worker's store and the typed array comes back
+through structured clone.
+
+Worker:
+
+```ts
+import { pipeline } from '@huggingface/transformers';
+import { InspectorBus, attach } from 'transformersjs-inspector';
+import { exposeToPage } from 'transformersjs-inspector/worker';
+
+const bus = new InspectorBus();
+exposeToPage(bus); // relays over `self`
+
+const pipe = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
+attach(pipe, { bus, panel: false });
+```
+
+Page:
+
+```ts
+import { mountPanel } from 'transformersjs-inspector';
+import { connectWorker } from 'transformersjs-inspector/worker';
+
+const worker = new Worker(new URL('./inference.worker.ts', import.meta.url), { type: 'module' });
+mountPanel(connectWorker(worker), { open: true });
+```
+
+Every inspector message on the port carries `__tjsi: 1`; the transport ignores anything
+else, and the host's own message handler should ignore anything that has it. `connectWorker`,
+`exposeToPage` and the underlying `messagePortTransport(port)` (any `Worker`, `MessagePort`
+or `self`) are also exported from the main entry; `demo/worker.html` and `e2e/worker.spec.ts`
+show the full wiring.
+
+## Options
+
+`attach(pipe, opts?)` takes `AttachOptions`, which is `Partial<InspectorOptions>` plus:
+
+| Option | Type | Default | Meaning |
+|---|---|---|---|
+| `bus` | `InspectorBus` | process-wide default bus | Bus the wrappers emit on. |
+| `store` | `TensorStore` | process-wide default store | Store that hands out tensor ids and answers **Load values**. |
+| `panel` | `boolean \| PanelOptions` | mount | `false` mounts no panel; an object is passed to `mountPanel`. A no-op where there is no DOM (workers). |
+
+`InspectorOptions` (`src/context.ts`):
+
+| Option | Type | Default | Meaning |
+|---|---|---|---|
+| `head` | `number` | `8` | Values summarised eagerly per tensor. |
+| `topK` | `number` | `10` | Entries per `logits` event (rows in each top-k table). |
+| `retainBytes` | `number` | `64 * 1024 * 1024` | Nominal byte budget of the tensor store (LRU beyond it). |
+| `retainLogits` | `boolean` | `false` | Keep every step's full logits tensor in the store (512 KB per step on a 128k vocab). |
+| `label` | `string` | `` `${task} · ${model_type}` `` | Row label for `call:start`. |
+| `transformers` | `{ LogitsProcessorList }` | unset | Escape hatch: if the host's Transformers.js rejects a plain array as `logits_processor`, pass its class and a real list is built. Not needed on 4.2.0. |
+
+`PanelOptions` (`mountPanel(bus, opts?)` and `attach(pipe, { panel: opts })`):
+
+| Option | Type | Default | Meaning |
+|---|---|---|---|
+| `container` | `Element` | `document.body` | Where the host `<div data-tjsi-panel>` is appended. |
+| `open` | `boolean` | `false` | Start expanded rather than as a badge. |
+| `title` | `string` | `Transformers.js inspector` | Header text. |
+| `maxCalls` | `number` | `200` | Rows kept; the oldest are dropped beyond this. |
+
+The `AttachHandle` returned by `attach()` carries `bus`, `store` and `detach()`.
+
+## Events
+
+Everything the panel shows is a JSON-safe event on an `InspectorBus` (`bus.on(listener)`
+for every event as it happens, `bus.history` for the recent ones), so the same stream can
+feed your own UI or a test. Every event survives
+`structuredClone` and `JSON.stringify`: no bigint, typed arrays or DOM nodes.
+
+| Event | Carries |
+|---|---|
+| `call:start` | `callId`, `label`, `task`, `input` preview |
+| `tokenize` | `text`, `ids[][]`, `tokens[][]`, `ms` |
+| `run:start` | `runId`, `session`, `inputs: TensorSummary[]` |
+| `run:end` | `runId`, `session`, `outputs: TensorSummary[]`, `ms`, `error` |
+| `logits` | `step`, `vocab`, `topK: { id, token, logit, prob }[]`, `tensorId` |
+| `token` | `step`, `ids`, `text` |
+| `result` | `callId`, `result` (tensors as `$tensor` markers), `ms`, `error` |
+
+A `TensorSummary` is `{ id, name, dtype, dims, location, size, bytes, head }`; the full
+values are fetched with `bus.request('tensor', { id })`, whose response (`TensorData`) is the
+one place a typed array may appear. The full definitions and the `isInspectorEvent` guard are
+in [`src/events.ts`](src/events.ts).
+
+## What you cannot see
+
+By design (`docs/00-brief.md`):
+
+- **No per-layer activations.** ONNX Runtime returns only the declared graph outputs; the
+  panel shows exactly the named inputs and outputs of each `session.run`. Seeing inside a
+  model means rewriting the ONNX graph, which this does not do.
+- **Transformers.js 4.x only.** Not TensorFlow.js, WebLLM, MediaPipe or pages that call
+  onnxruntime-web directly. The tokenizer and pipeline hooks use underscore-private methods
+  (`tokenizer._call`, `pipe._call`) that are stable in practice but not documented API.
+- **Read-only.** No editing or replaying of inputs.
+- **Nothing persisted or uploaded.** No `localStorage`, no downloads, no network requests;
+  everything lives in the tab and is gone on reload.
+
+Known limitations of this version (`docs/02-plan.md`, "Out of scope"):
+
+- **Concurrent calls on one pipeline** may attribute session runs to the wrong row: a
+  single "current call" is tracked per pipeline, so interleaved `await pipe(...)` calls are
+  not disambiguated.
+- **Processor inputs are metadata only.** `pipe.processor` (image and audio feature
+  extractors) is not wrapped; an image or audio input shows as size and sample-count
+  metadata, and its preprocessed tensors appear at the session boundary.
+- **KV cache is listed as plain tensors.** `present.*` / `past_key_values.*` are ordinary
+  rows in the tensor tables, not a growing cache view; on WebGPU they are `gpu-buffer` and
+  are copied back only on **Load values**.
+- Encoder-decoder models (Whisper, T5) are covered at the session boundary by construction
+  (`encoder_model` + `decoder_model_merged`) but are not in the demo.
+- Expanding a row re-renders it when the call updates, which drops values already loaded
+  into it; click **Load values** again.
+
+## Overhead
+
+The demo's **Benchmark** button times 30 `Xenova/all-MiniLM-L6-v2` embeddings with the
+pipeline detached and 30 more with it attached and the panel closed (5 warm-up runs first),
+and reports both medians. On this machine, headless Chromium, wasm backend
+(`e2e/overhead.spec.ts`):
+
+| run | detached median | attached median | ratio |
+|---|---|---|---|
+| cold | 6.80 ms | 6.50 ms | 0.956 |
+| warm | 6.80 ms | 6.70 ms | 0.985 |
+| warm | 6.60 ms | 6.50 ms | 0.985 |
+
+The attach overhead is below the run-to-run noise (about ±5 % on 6–7 ms runs), which is
+what you would expect: the hot path summarises 8 values per CPU tensor and computes top-k
+over the logits, and reads nothing else until you click. The e2e asserts the noise-tolerant
+`ratio < 1.25`; a 5 % gate on runs this short would flake. Generation adds one top-k pass
+per step (a `[1, 1, vocab]` scan), which is not separately benchmarked.
+
 ## Development
 
 ```bash
@@ -57,12 +289,25 @@ npm run dev          # Vite demo on http://localhost:5173 (Transformers.js from 
 npm run typecheck    # tsc --noEmit
 npm test             # Vitest, offline (test/**/*.test.ts)
 npm run lint         # ESLint
-npm run build        # dist/index.js + dist/*.d.ts
+npm run build        # dist/index.js, dist/preload.js, dist/worker.js + .d.ts
+npm run build:demo   # dist-demo/ (index, preload and worker pages)
 npm run e2e          # Playwright against the demo; e.g. npm run e2e -- e2e/demo.spec.ts
+npm run screenshots  # rewrites docs/img/panel-*.png from the demo (not part of `npm run e2e`)
 ```
 
 `npm run e2e` starts the demo server itself (or reuses one on :5173). The Chromium profile
-under `.cache/pw-profile` persists between runs, so the fixture models
-(`Xenova/all-MiniLM-L6-v2`, `onnx-community/tiny-random-LlamaForCausalLM-ONNX`) and the CDN
-module are downloaded once and served from the browser cache afterwards; delete that
-directory to force a fresh download.
+under `.cache/pw-profile` persists between runs, so the two fixture models
+(`Xenova/all-MiniLM-L6-v2`, the encoder, and `onnx-community/tiny-random-LlamaForCausalLM-ONNX`,
+a 41 MB randomly initialised decoder) and the CDN module are downloaded once and served from
+the browser cache afterwards; delete that directory to force a fresh download. The demo also
+has a text-classification section (`Xenova/distilbert-base-uncased-finetuned-sst-2-english`)
+that the e2e does not exercise.
+
+Package layout: `.` (`attach`, `InspectorBus`, `TensorStore`, `mountPanel`, the worker
+helpers, all types), `./preload` (side-effect entry) and `./worker` (`connectWorker`,
+`exposeToPage`, `messagePortTransport`). `@huggingface/transformers` is an optional peer
+(`>=4 <5`) used for types only; the library never imports it at runtime.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
