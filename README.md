@@ -81,8 +81,9 @@ How it is organised:
 - **One row per pipeline call**: sequence number, label (`task · model_type` by default),
   an excerpt of the input, wall time, status dot. Click to expand. The header badge counts
   calls; while the panel is collapsed only the badge updates.
-- **Input**: text (truncated to 2000 chars) or texts; images and audio are described by
-  metadata only (size, channels, sample count).
+- **Input**: text (truncated to 2000 chars) or texts; an image shows a thumbnail and its
+  size and channels, audio shows a waveform with its sample count, rate and duration (see
+  "Media previews" below).
 - **Tokenizer**: every `tokenizer(text)` call during the row, as `id / token` chips (decoded
   text, with leading or trailing whitespace tinted; the vocab string on hover).
 - **Session runs**: one block per `session.run` (a decoder-only model produces one per
@@ -92,6 +93,8 @@ How it is organised:
 - **Load values**: fetches the full tensor by id through the bus from a byte-budgeted
   store (64 MiB, LRU) and renders up to 4096 values. A GPU-resident tensor is copied back
   only when you click; a tensor evicted from the store reports `evicted`.
+- **Preview**: on tensor rows whose dims look like an image, fetches the same values and
+  draws them as one (see "Media previews").
 - **Generation**: per step, the token id and string that was picked and a top-k table
   (`token`, `id`, `logit`, `prob`, 10 rows by default) taken from a logits processor, so it
   reflects what the sampler saw after repetition penalties and the like. Raw logits are still
@@ -101,6 +104,36 @@ How it is organised:
 
 Rows that arrive without a pipeline call (the preload path, or a direct `model.sessions`
 call) are shown as `direct · <session>` rows with only the session run.
+
+### Media previews
+
+At the input boundary the `call:start` event carries a small, clone-safe preview, and the
+panel draws it:
+
+- **Audio** (`Float32Array`, `Float64Array`, or a `{ audio, sampling_rate }` RawAudio): the
+  sample count, rate and duration, and an inline SVG waveform built from 200 min/max
+  buckets computed at capture time (at most 400 numbers, so a minute of 16 kHz audio costs
+  about 3 KB in the event). Chunked audio (`Float32Array[]`) shows a sample count only.
+- **Image** (a `RawImage`, or anything with `width`, `height`, `channels`, `data`): the size
+  and channel count, and a JPEG thumbnail at most 96 px on the long side (a few KB). The
+  panel only ever sets an `<img src>` to a `data:image/` URL: a `Blob`, `URL` or http input
+  is listed by its URL as text and never fetched.
+
+**Preview** appears on tensor rows whose `dtype` and `dims` can be read as pixels or as a
+2-D map: `[1, 3, H, W]` and `[3, H, W]` (RGB, channels first), `[1, H, W, 3]` and `[H, W, 3]`
+(RGB, channels last), and `[H, W]`, `[1, H, W]`, `[1, 1, H, W]` or `[1, C, T]` as a grayscale
+map (Whisper's `input_features [1, 80, 3000]`, or an encoder's `[1, tokens, hidden]` state).
+Both sides must be at least 8; `float16` and `string` tensors are skipped. Clicking fetches
+the tensor through the bus exactly like **Load values** (so it works across the worker
+bridge), normalises each channel from its own min/max (one global range for grayscale),
+downsamples any side over 512 px by nearest-neighbour sampling, and paints a `<canvas>` with
+the min/max mapping written under it. The two buttons share the row's cell; the last click
+wins.
+
+Thumbnails need a `<canvas>` to encode, which a Web Worker does not have, so when `attach()`
+runs in a worker the image preview is metadata only (the waveform is plain arithmetic and
+works everywhere). The tensor **Preview** is unaffected: the bytes come back over the bridge
+and are painted on the page.
 
 ### Where the panel sits
 
@@ -280,9 +313,10 @@ Known limitations of this version (`docs/02-plan.md`, "Out of scope"):
 - **Concurrent calls on one pipeline** may attribute session runs to the wrong row: a
   single "current call" is tracked per pipeline, so interleaved `await pipe(...)` calls are
   not disambiguated.
-- **Processor inputs are metadata only.** `pipe.processor` (image and audio feature
-  extractors) is not wrapped; an image or audio input shows as size and sample-count
-  metadata, and its preprocessed tensors appear at the session boundary.
+- **Processors are not wrapped.** `pipe.processor` (image and audio feature extractors) is
+  not hooked; an image or audio input is previewed as it enters the pipeline (thumbnail or
+  waveform plus metadata) and its preprocessed tensors appear at the session boundary, where
+  **Preview** can draw them. Image thumbnails are not produced inside a Web Worker.
 - **KV cache is listed as plain tensors.** `present.*` / `past_key_values.*` are ordinary
   rows in the tensor tables, not a growing cache view; on WebGPU they are `gpu-buffer` and
   are copied back only on **Load values**.

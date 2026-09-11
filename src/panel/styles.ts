@@ -222,6 +222,15 @@ tr.values td { white-space: normal; background: var(--tjsi-bg-detail); max-width
   color: var(--tjsi-fg);
 }
 
+/* Media previews: the Input waveform and thumbnail, and the tensor Preview image with its caption. */
+.wave { display: block; width: 100%; max-width: 400px; height: 40px; background: var(--tjsi-bg); border: 1px solid var(--tjsi-border); border-radius: 4px; }
+.wave-area { fill: var(--tjsi-accent); opacity: 0.7; }
+img.thumb { display: block; max-width: 96px; max-height: 96px; border: 1px solid var(--tjsi-border); border-radius: 4px; margin-bottom: 4px; background: var(--tjsi-bg); }
+table.tensors td.actions { white-space: nowrap; }
+table.tensors td.actions .btn + .btn { margin-left: 4px; }
+canvas.tensor-image { display: block; max-width: 100%; height: auto; image-rendering: pixelated; border: 1px solid var(--tjsi-border); background: var(--tjsi-bg); }
+.tensor-image-caption { margin-top: 4px; margin-bottom: 0; white-space: normal; }
+
 /* Generation section: per-step blocks and top-k rows with probability bars. */
 .step { margin-bottom: 8px; }
 .step-head { font-weight: 600; color: var(--tjsi-fg); }

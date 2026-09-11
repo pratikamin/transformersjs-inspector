@@ -2,12 +2,12 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { InspectorBus } from '../src/bus';
 import type { InspectorEvent, TensorData } from '../src/events';
-import { fmtBytes, fmtDims, fmtMs, fmtNum, h } from '../src/panel/dom';
+import { fmtBytes, fmtDims, fmtMs, fmtNum, h, svg } from '../src/panel/dom';
 import type { InspectorPanel } from '../src/panel/panel';
 import { mountPanel } from '../src/panel/panel';
-import { MAX_VALUES, renderTensorValues } from '../src/panel/render';
+import { MAX_VALUES, renderTensorImage, renderTensorValues, renderWaveform } from '../src/panel/render';
 import { adoptStyles, PANEL_CSS } from '../src/panel/styles';
-import { fixtureEvents } from './fakes';
+import { FAKE_THUMB, fixtureEvents, fixtureMediaEvents } from './fakes';
 
 const panels: InspectorPanel[] = [];
 const mount = (bus: InspectorBus, opts?: Parameters<typeof mountPanel>[1]): InspectorPanel => {
@@ -85,6 +85,13 @@ describe('adoptStyles', () => {
     expect(PANEL_CSS).toMatch(/position:\s*fixed/);
     expect(PANEL_CSS).toMatch(/z-index:\s*2147483647/);
     expect(PANEL_CSS).toMatch(/\.bar\s*\{/);
+  });
+
+  test('media rules: waveform, thumbnail and tensor image, coloured through tokens only', () => {
+    expect(PANEL_CSS).toMatch(/\.wave\s*\{[^}]*height: 40px/);
+    expect(PANEL_CSS).toMatch(/\.wave-area\s*\{[^}]*fill: var\(--tjsi-accent\)/);
+    expect(PANEL_CSS).toMatch(/img\.thumb\s*\{[^}]*max-width: 96px/);
+    expect(PANEL_CSS).toMatch(/canvas\.tensor-image\s*\{[^}]*image-rendering: pixelated/);
   });
 
   test('dock insets on the host and a 16px grip on the corner opposite the anchor', () => {
@@ -601,5 +608,209 @@ describe('mountPanel', () => {
     expect(rowsOf(p)).toHaveLength(0);
     expect(badgeOf(p)).toBe('0');
     p.destroy(); // idempotent
+  });
+});
+
+describe('media previews (story 6)', () => {
+  const details = (p: InspectorPanel, id: string): Element | null => p.shadow.querySelector(`[data-details="${id}"]`);
+  const mountMedia = (bus: InspectorBus): InspectorPanel => {
+    const p = mount(bus, { open: true });
+    for (const ev of fixtureMediaEvents()) bus.emit(ev);
+    return p;
+  };
+  /** A 2d-context stand-in for happy-dom, whose `getContext` returns null. */
+  const fakeContext = () => {
+    const puts: { data: Uint8ClampedArray; width: number; height: number; x: number; y: number }[] = [];
+    const ctx = {
+      createImageData: (width: number, height: number) => ({ width, height, data: new Uint8ClampedArray(width * height * 4) }),
+      putImageData: (image: { data: Uint8ClampedArray; width: number; height: number }, x: number, y: number) => {
+        puts.push({ ...image, x, y });
+      },
+    };
+    return { ctx, puts };
+  };
+
+  test('h() sets src only on <img> and only for data:image/ URLs; width/height only on img and canvas', () => {
+    expect(h('img', { src: FAKE_THUMB }).getAttribute('src')).toBe(FAKE_THUMB);
+    expect(h('img', { src: 'https://example.com/a.png' }).hasAttribute('src')).toBe(false);
+    expect(h('img', { src: 'data:text/html,hi' }).hasAttribute('src')).toBe(false);
+    expect(h('div', { src: FAKE_THUMB }).hasAttribute('src')).toBe(false);
+    const canvas = h('canvas', { width: 12, height: 7 });
+    expect(canvas.width).toBe(12);
+    expect(canvas.height).toBe(7);
+    expect(h('div', { width: 12 }).hasAttribute('width')).toBe(false);
+  });
+
+  test('svg() creates namespaced elements with attributes and no markup parsing', () => {
+    const el = svg('svg', { viewBox: '0 0 200 40', class: 'wave' }, svg('path', { d: 'M0,20 L200,20 Z' }));
+    expect(el.namespaceURI).toBe('http://www.w3.org/2000/svg');
+    expect(el.getAttribute('viewBox')).toBe('0 0 200 40');
+    expect(el.querySelector('path')?.namespaceURI).toBe('http://www.w3.org/2000/svg');
+    expect(el.querySelector('path')?.getAttribute('d')).toBe('M0,20 L200,20 Z');
+    expect(svg('rect', { width: '<b>' }).getAttribute('width')).toBe('<b>');
+    expect(svg('rect', { width: '<b>' }).children).toHaveLength(0);
+  });
+
+  test('renderWaveform: maxes left to right at y = 20 - v*19, mins back, closed; clamped to [-1, 1]', () => {
+    const d = renderWaveform([-1, 1, 0, 0, -0.5, 0.5]).querySelector('path')?.getAttribute('d');
+    expect(d).toBe('M0,1 L100,20 L200,10.5 L200,29.5 L100,20 L0,39 Z');
+    expect(renderWaveform([-5, 5]).querySelector('path')?.getAttribute('d')).toBe('M20,1 L20,39 Z');
+    expect(renderWaveform([]).querySelector('path')?.getAttribute('d')).toBe('M0,20 L200,20 Z');
+    const wave = renderWaveform([0, 0]);
+    expect(wave.getAttribute('class')).toBe('wave');
+    expect(wave.getAttribute('preserveAspectRatio')).toBe('none');
+  });
+
+  test('c3 (audio) renders samples, rate and duration text plus an svg.wave whose path starts at x = 0', () => {
+    const p = mountMedia(new InspectorBus());
+    click(rowsOf(p)[0]);
+    const input = details(p, 'c3')?.querySelector('section');
+    expect(input?.textContent).toContain('audio · 48000 samples @ 16000 Hz · 3 s');
+    const wave = input?.querySelector('svg.wave');
+    expect(wave?.namespaceURI).toBe('http://www.w3.org/2000/svg');
+    expect(wave?.getAttribute('viewBox')).toBe('0 0 200 40');
+    const d = wave?.querySelector('path.wave-area')?.getAttribute('d') ?? '';
+    expect(d.startsWith('M0,')).toBe(true);
+    expect(d.endsWith(' Z')).toBe(true);
+    expect(d.split(' L')).toHaveLength(400); // 200 maxes out, 200 mins back
+    expect(rowsOf(p)[0].querySelector('.excerpt')?.textContent).toBe('audio 48000 samples @ 16000 Hz');
+  });
+
+  test('c4 (image) renders img.thumb from the data: URL and the size/channels text', () => {
+    const p = mountMedia(new InspectorBus());
+    click(rowsOf(p)[1]);
+    const input = details(p, 'c4')?.querySelector('section');
+    const img = input?.querySelector<HTMLImageElement>('img.thumb');
+    expect(img?.getAttribute('src')?.startsWith('data:image/jpeg;base64,')).toBe(true);
+    expect(img?.title).toBe('input thumbnail');
+    expect(input?.textContent).toContain('image 224×224×4');
+  });
+
+  test('old previews without peaks/thumb render as before, and a remote src is text, never an <img>', () => {
+    const bus = new InspectorBus();
+    const p = mount(bus, { open: true });
+    bus.emit({ type: 'call:start', callId: 'c1', label: 'asr', task: 'automatic-speech-recognition', input: { kind: 'audio', samples: 100, sampleRate: 16000 }, t: 1 });
+    bus.emit({ type: 'call:start', callId: 'c2', label: 'img', task: 'image-classification', input: { kind: 'image', width: 10, height: 10, src: 'https://example.com/cat.png' }, t: 2 });
+    bus.emit({ type: 'call:start', callId: 'c3', label: 'img', task: 'image-classification', input: { kind: 'image', width: 10, height: 10, thumb: 'https://example.com/cat.png' }, t: 3 });
+    for (const row of rowsOf(p)) click(row);
+    expect(details(p, 'c1')?.textContent).toContain('audio · 100 samples @ 16000 Hz');
+    expect(details(p, 'c1')?.querySelector('svg')).toBeNull();
+    expect(details(p, 'c2')?.querySelector('img')).toBeNull();
+    expect(details(p, 'c2')?.textContent).toContain('https://example.com/cat.png');
+    expect(details(p, 'c2')?.textContent).toContain('image 10×10');
+    expect(details(p, 'c3')?.querySelector('img')).toBeNull();
+    expect(p.shadow.querySelector('[src]')).toBeNull();
+  });
+
+  test('Preview buttons appear on image-shaped tensor rows only', () => {
+    const bus = new InspectorBus();
+    const p = mount(bus, { open: true });
+    for (const ev of [...fixtureEvents(), ...fixtureMediaEvents()]) bus.emit(ev);
+    for (const row of rowsOf(p)) click(row);
+    const preview = (id: string): Element | null => p.shadow.querySelector(`tr[data-tensor="${id}"] button[data-action="preview"]`);
+    expect(preview('t20')?.textContent).toBe('Preview'); // input_features [1, 80, 3000]
+    expect(preview('t22')?.textContent).toBe('Preview'); // pixel_values [1, 3, 224, 224]
+    expect(preview('t21')?.textContent).toBe('Preview'); // last_hidden_state [1, 1500, 384]: a [1,C,T] map
+    expect(preview('t4')).toBeNull(); // last_hidden_state [1, 7, 384]: 7 rows is under MIN_IMAGE_SIDE
+    expect(preview('t23')).toBeNull(); // logits [1, 1000]
+    expect(p.shadow.querySelectorAll('button[data-action="preview"]')).toHaveLength(3);
+    expect(p.shadow.querySelector('tr[data-tensor="t22"] button[data-action="load"]')).not.toBeNull();
+  });
+
+  test('clicking Preview requests exactly that id and, under happy-dom, renders the canvas-unavailable note with the mapping', async () => {
+    const bus = new InspectorBus();
+    const w = 3000;
+    bus.handle('tensor', ({ id }) => ({ id, dtype: 'float32', dims: [1, 80, w], data: Float32Array.from({ length: 80 * w }, (_, i) => (i % w) / 1000 - 1.5) }));
+    const request = vi.spyOn(bus, 'request');
+    const p = mountMedia(bus);
+    click(rowsOf(p)[0]);
+    expect(request).not.toHaveBeenCalled();
+    const button = p.shadow.querySelector<HTMLButtonElement>('[data-details="c3"] tr[data-tensor="t20"] button[data-action="preview"]');
+    click(button);
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(request).toHaveBeenCalledWith('tensor', { id: 't20' });
+    expect(button?.disabled).toBe(true);
+    await tick();
+    expect(button?.disabled).toBe(false);
+    const cell = valuesUnder(p.shadow.querySelector('[data-details="c3"] tr[data-tensor="t20"]'));
+    expect(cell?.dataset.values).toBe('t20');
+    expect(cell?.querySelector('canvas')).toBeNull();
+    expect(cell?.querySelector('[data-canvas-unavailable]')?.textContent).toBe('canvas unavailable');
+    const meta = cell?.querySelector('.meta')?.textContent ?? '';
+    expect(meta).toContain('min');
+    expect(meta).toBe('float32 [1, 80, 3000] · gray 80×3000 → 80×512 · min -1.5 · max 1.499');
+    expect(p.shadow.querySelectorAll('tr.values')).toHaveLength(1);
+  });
+
+  test('with a 2d context, Preview paints the rasterised bytes onto canvas.tensor-image', async () => {
+    const { ctx, puts } = fakeContext();
+    const spy = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => ctx as unknown as CanvasRenderingContext2D);
+    try {
+      const bus = new InspectorBus();
+      const data = new Float32Array(3 * 224 * 224);
+      for (let i = 0; i < 224 * 224; i++) {
+        data[i] = i % 224; // R ramps across columns
+        data[224 * 224 + i] = 2; // G flat
+        data[2 * 224 * 224 + i] = -Math.floor(i / 224); // B ramps down rows
+      }
+      bus.handle('tensor', ({ id }) => ({ id, dtype: 'float32', dims: [1, 3, 224, 224], data }));
+      const p = mountMedia(bus);
+      click(rowsOf(p)[1]);
+      click(p.shadow.querySelector('[data-details="c4"] tr[data-tensor="t22"] button[data-action="preview"]'));
+      await tick();
+      const cell = valuesUnder(p.shadow.querySelector('[data-details="c4"] tr[data-tensor="t22"]'));
+      const canvas = cell?.querySelector<HTMLCanvasElement>('canvas.tensor-image');
+      expect(canvas?.width).toBe(224);
+      expect(canvas?.height).toBe(224);
+      expect(cell?.querySelector('[data-canvas-unavailable]')).toBeNull();
+      expect(puts).toHaveLength(1);
+      expect(puts[0]).toMatchObject({ width: 224, height: 224, x: 0, y: 0 });
+      const px = puts[0].data;
+      expect(Array.from(px.slice(0, 4))).toEqual([0, 0, 255, 255]); // top-left: R min, G flat, B max
+      expect(Array.from(px.slice(223 * 4, 224 * 4))).toEqual([255, 0, 255, 255]); // top-right
+      expect(Array.from(px.slice(223 * 224 * 4, 223 * 224 * 4 + 4))).toEqual([0, 0, 0, 255]); // bottom-left
+      expect(cell?.querySelector('.meta')?.textContent).toBe('float32 [1, 3, 224, 224] · rgb chw 224×224 · min…max R 0…223 · G 2…2 · B -223…0');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  test('Preview: an {error} response, a rejected request and a non-image response render the error string', async () => {
+    const bus = new InspectorBus();
+    bus.handle('tensor', ({ id }) => (id === 't20' ? { id, error: 'evicted' } : Promise.reject(new Error('readback failed'))));
+    const p = mountMedia(bus);
+    for (const row of rowsOf(p)) click(row);
+    click(p.shadow.querySelector('[data-details="c3"] tr[data-tensor="t20"] button[data-action="preview"]'));
+    click(p.shadow.querySelector('[data-details="c4"] tr[data-tensor="t22"] button[data-action="preview"]'));
+    await tick();
+    const evicted = valuesUnder(p.shadow.querySelector('[data-details="c3"] tr[data-tensor="t20"]'));
+    expect(evicted?.querySelector('[data-values-error]')?.textContent).toBe('evicted');
+    expect(evicted?.querySelector('.meta')).toBeNull();
+    const rejected = valuesUnder(p.shadow.querySelector('[data-details="c4"] tr[data-tensor="t22"]'));
+    expect(rejected?.querySelector('.error')?.textContent).toBe('readback failed');
+
+    const el = h('div');
+    renderTensorImage(el, { id: 'x', dtype: 'float32', dims: [1, 7, 384], data: new Float32Array(7 * 384) });
+    expect(el.querySelector('.error')?.textContent).toBe('not an image: float32 [1, 7, 384]');
+    renderTensorImage(el, { id: 'x', dtype: 'string', dims: [8, 8], data: new Array<string>(64).fill('a') });
+    expect(el.querySelector('.error')?.textContent).toContain('not an image');
+    renderTensorImage(el, { id: 'x', dtype: 'float32', dims: [8, 8], data: new Float32Array(3) });
+    expect(el.querySelector('.error')?.textContent).toContain('needs 64');
+  });
+
+  test('Preview and Load values share the cell; the last click wins', async () => {
+    const bus = new InspectorBus();
+    bus.handle('tensor', ({ id }) => ({ id, dtype: 'float32', dims: [1, 80, 3000], data: new Float32Array(80 * 3000) }));
+    const p = mountMedia(bus);
+    click(rowsOf(p)[0]);
+    const row = p.shadow.querySelector('[data-details="c3"] tr[data-tensor="t20"]');
+    click(row?.querySelector('button[data-action="preview"]'));
+    await tick();
+    expect(valuesUnder(row)?.querySelector('.meta')?.textContent).toContain('gray');
+    click(row?.querySelector('button[data-action="load"]'));
+    await tick();
+    expect(valuesUnder(row)?.querySelector('.values-list')).not.toBeNull();
+    expect(valuesUnder(row)?.querySelector('[data-canvas-unavailable]')).toBeNull();
+    expect(p.shadow.querySelectorAll('tr.values')).toHaveLength(1);
   });
 });

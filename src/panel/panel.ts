@@ -3,16 +3,17 @@
  *
  * Three levels of laziness: while closed only the reducer runs and the badge count is
  * written; an open panel renders one summary row per call; expanding a row renders its
- * sections. Tensor values are fetched only when "Load values" is clicked: that is the sole
- * caller of `bus.request('tensor')`. Details are re-rendered wholesale on every update of an
- * expanded call, so values loaded into a still-running call disappear and need another click.
+ * sections. Tensor values are fetched only when "Load values" or "Preview" is clicked: those
+ * are the sole callers of `bus.request('tensor')`. Details are re-rendered wholesale on every
+ * update of an expanded call, so values loaded into a still-running call disappear and need
+ * another click.
  */
 import type { InspectorBus } from '../bus';
-import type { InspectorEvent } from '../events';
+import type { InspectorEvent, TensorData } from '../events';
 import { h } from './dom';
 import type { CallView, PanelState } from './model';
 import { createState, reduce } from './model';
-import { renderRowDetails, renderRowSummary, renderTensorValues, valuesCellFor } from './render';
+import { renderRowDetails, renderRowSummary, renderTensorImage, renderTensorValues, valuesCellFor } from './render';
 import { DEFAULT_DOCK, fitElement, watchViewport } from './fit';
 import type { Dock } from './fit';
 import type { RenderContext } from './render';
@@ -172,17 +173,21 @@ export function mountPanel(bus: InspectorBus, opts: PanelOptions = {}): Inspecto
     fit();
   };
 
-  /** Resolves one `Load values` click; the button is disabled while the request is in flight. */
-  const loadValues = async (id: string, row: HTMLElement, button: HTMLButtonElement | null): Promise<void> => {
+  /**
+   * Resolves one `Load values` or `Preview` click: fetches the tensor through the bus into
+   * the row's values cell and hands it to `render`; the button is disabled while the request
+   * is in flight. Both buttons share the cell, so the last click wins.
+   */
+  const loadTensor = async (id: string, row: HTMLElement, button: HTMLButtonElement | null, render: (cell: HTMLElement, data: TensorData) => void): Promise<void> => {
     const cell = valuesCellFor(row);
     cell.textContent = '';
     cell.appendChild(h('div', { class: 'muted' }, 'loading…'));
     if (button) button.disabled = true;
     try {
       const data = await bus.request('tensor', { id });
-      renderTensorValues(cell, data);
+      render(cell, data);
     } catch (e: unknown) {
-      renderTensorValues(cell, { id, error: e instanceof Error ? e.message : String(e) });
+      render(cell, { id, error: e instanceof Error ? e.message : String(e) });
     } finally {
       if (button) button.disabled = false;
     }
@@ -206,10 +211,12 @@ export function mountPanel(bus: InspectorBus, opts: PanelOptions = {}): Inspecto
       case 'clear':
         panel.clear();
         break;
-      case 'load': {
+      case 'load':
+      case 'preview': {
         const row = actionEl.closest<HTMLElement>('tr[data-tensor]');
         const id = actionEl.dataset.tensor ?? row?.dataset.tensor;
-        if (row && id) void loadValues(id, row, actionEl instanceof HTMLButtonElement ? actionEl : null);
+        const render = actionEl.dataset.action === 'preview' ? renderTensorImage : renderTensorValues;
+        if (row && id) void loadTensor(id, row, actionEl instanceof HTMLButtonElement ? actionEl : null, render);
         break;
       }
       default:

@@ -4,14 +4,17 @@
  *
  * Lazy tensor values: the panel resolves a `Load values` click through the bus and hands the
  * response to `renderTensorValues(cell, data)`, where `cell` comes from `valuesCellFor(row)`
- * (a `tr.values` inserted right after the tensor's row). The `Generation` section sets its
- * `.bar` widths through the CSSOM property, never a markup attribute, so a strict CSP is fine.
+ * (a `tr.values` inserted right after the tensor's row). The `Preview` button on rows whose
+ * dims look like an image (`imageShapeOf`) goes through the same cell and `renderTensorImage`.
+ * The `Generation` section sets its `.bar` widths through the CSSOM property, never a markup
+ * attribute, so a strict CSP is fine.
  */
 import type { InspectorBus } from '../bus';
 import type { InputPreview, TensorData, TensorSummary, TopKEntry } from '../events';
-import { empty, fmtBytes, fmtDims, fmtMs, fmtNum, h } from './dom';
+import { empty, fmtBytes, fmtDims, fmtMs, fmtNum, h, isDataImageUrl, svg } from './dom';
 import type { Child } from './dom';
 import type { CallView, RunView, StepView, TokenizeEvent } from './model';
+import { describeMapping, imageShapeOf, rasterize } from './tensor-image';
 
 /** What sections may need beyond the call itself (story 6 issues `ctx.bus.request('tensor')`). */
 export interface RenderContext {
@@ -77,6 +80,45 @@ function section(title: string, ...body: Child[]): HTMLElement {
   return h('section', { class: 'section' }, h('h3', null, title), ...body);
 }
 
+/** Waveform geometry: `WAVE_W` × `WAVE_H` user units, mid-line at `WAVE_MID`, ±1 spans `WAVE_AMP`. */
+const WAVE_W = 200;
+const WAVE_H = 40;
+const WAVE_MID = WAVE_H / 2;
+const WAVE_AMP = WAVE_MID - 1;
+
+const waveY = (v: number): number => Math.round((WAVE_MID - Math.max(-1, Math.min(1, v)) * WAVE_AMP) * 100) / 100;
+
+/**
+ * An inline `<svg class="wave">` from interleaved `[min0, max0, min1, max1, …]` peaks: one
+ * closed `<path>` walking the maxes left to right and the mins back right to left, in a
+ * `0 0 200 40` viewBox stretched to the row (`preserveAspectRatio="none"`). Testable by
+ * reading the `d` attribute; no `getContext` needed.
+ */
+export function renderWaveform(peaks: number[]): SVGElement {
+  const n = Math.floor(peaks.length / 2);
+  const step = n > 1 ? WAVE_W / (n - 1) : 0;
+  const x = (i: number): number => Math.round((n > 1 ? i * step : WAVE_MID) * 100) / 100;
+  const top: string[] = [];
+  const bottom: string[] = [];
+  for (let i = 0; i < n; i++) {
+    top.push(`${x(i)},${waveY(peaks[2 * i + 1])}`);
+    bottom.push(`${x(i)},${waveY(peaks[2 * i])}`);
+  }
+  const d = n === 0 ? `M0,${WAVE_MID} L${WAVE_W},${WAVE_MID} Z` : `M${top.join(' L')} L${bottom.reverse().join(' L')} Z`;
+  return svg(
+    'svg',
+    { class: 'wave', viewBox: `0 0 ${WAVE_W} ${WAVE_H}`, preserveAspectRatio: 'none', role: 'img', 'aria-label': 'waveform' },
+    svg('path', { class: 'wave-area', d }),
+  );
+}
+
+function audioMeta(input: Extract<InputPreview, { kind: 'audio' }>): string {
+  const parts = [`audio · ${input.samples} samples`];
+  if (input.sampleRate) parts.push(`@ ${input.sampleRate} Hz`);
+  if (input.duration !== undefined) parts.push(`· ${input.duration} s`);
+  return parts.join(' ');
+}
+
 function renderInput(call: CallView): HTMLElement {
   const input = call.input;
   if (!input) return section('Input', h('div', { class: 'muted' }, call.synthetic ? 'direct call, no pipeline input' : '—'));
@@ -92,12 +134,14 @@ function renderInput(call: CallView): HTMLElement {
       body = h(
         'div',
         null,
+        // Only a data: URL is ever set (see `Attrs.src`); a remote `src` is shown as text below.
+        isDataImageUrl(input.thumb) ? h('img', { class: 'thumb', src: input.thumb, title: 'input thumbnail' }) : null,
         h('div', { class: 'meta' }, `image ${input.width ?? '?'}×${input.height ?? '?'}${input.channels !== undefined ? `×${input.channels}` : ''}`),
         input.src ? h('div', { class: 'muted' }, input.src) : null,
       );
       break;
     case 'audio':
-      body = h('div', { class: 'meta' }, `audio · ${input.samples} samples${input.sampleRate ? ` @ ${input.sampleRate} Hz` : ''}`);
+      body = h('div', null, h('div', { class: 'meta' }, audioMeta(input)), input.peaks && input.peaks.length >= 2 ? renderWaveform(input.peaks) : null);
       break;
     case 'other':
       body = h('pre', null, safeJson(input.json));
@@ -150,6 +194,7 @@ const TENSOR_COLUMNS = ['name', 'dtype', 'dims', 'location', 'bytes', 'head', ''
 /**
  * One `<tr data-tensor=id>` per summary. The `Load values` button carries both
  * `data-action="load"` and `data-tensor="<id>"`; the panel's click delegation resolves it.
+ * Rows whose dims pass `imageShapeOf` get a second `Preview` button (`data-action="preview"`).
  */
 export function renderTensorTable(tensors: TensorSummary[]): HTMLElement {
   return h(
@@ -169,7 +214,12 @@ export function renderTensorTable(tensors: TensorSummary[]): HTMLElement {
           h('td', null, t.location),
           h('td', { class: 'num', title: `${t.size} elements` }, fmtBytes(t.bytes)),
           h('td', { class: 'head' }, fmtHead(t)),
-          h('td', null, t.id ? h('button', { class: 'btn', data: { action: 'load', tensor: t.id } }, 'Load values') : null),
+          h(
+            'td',
+            { class: 'actions' },
+            t.id ? h('button', { class: 'btn', data: { action: 'load', tensor: t.id } }, 'Load values') : null,
+            t.id && imageShapeOf(t.dims, t.dtype) ? h('button', { class: 'btn', data: { action: 'preview', tensor: t.id } }, 'Preview') : null,
+          ),
         ),
       ),
     ),
@@ -241,6 +291,44 @@ export function renderTensorValues(el: HTMLElement, data: TensorData): void {
   el.appendChild(h('div', { class: 'meta' }, `${data.dtype} ${fmtDims(data.dims)} · ${total} value${total === 1 ? '' : 's'}`));
   el.appendChild(h('div', { class: 'values-list' }, shown.length ? shown.join(', ') : h('span', { class: 'muted' }, 'empty')));
   if (more > 0) el.appendChild(h('div', { class: 'muted', data: { more } }, `… ${more} more`));
+}
+
+/**
+ * Fills `el` with a `TensorData` response drawn as an image: the response's own dims and
+ * dtype go through `imageShapeOf` (a mismatch with the summary renders an error, as do
+ * `string` data and `{ error }` responses), `rasterize` maps values to RGBA, a `<canvas>`
+ * shows them via `putImageData`, and a `.meta` line under it states the min/max mapping.
+ * Where `getContext('2d')` is `null` (happy-dom, a CSP that blocks canvas) the caption is
+ * still rendered under a `canvas unavailable` note.
+ */
+export function renderTensorImage(el: HTMLElement, data: TensorData): void {
+  empty(el);
+  if ('error' in data) {
+    el.appendChild(h('div', { class: 'error', data: { valuesError: '' } }, data.error));
+    return;
+  }
+  const shape = imageShapeOf(data.dims, data.dtype);
+  if (!shape || Array.isArray(data.data) || !('length' in data.data)) {
+    el.appendChild(h('div', { class: 'error', data: { valuesError: '' } }, `not an image: ${data.dtype} ${fmtDims(data.dims)}`));
+    return;
+  }
+  try {
+    const raster = rasterize(data.data as unknown as ArrayLike<number | bigint>, shape);
+    const canvas = h('canvas', { class: 'tensor-image', width: raster.width, height: raster.height, title: `${data.dtype} ${fmtDims(data.dims)}` });
+    const ctx2d = canvas.getContext('2d');
+    if (ctx2d) {
+      const image = ctx2d.createImageData(raster.width, raster.height);
+      image.data.set(raster.rgba);
+      ctx2d.putImageData(image, 0, 0);
+      el.appendChild(canvas);
+    } else {
+      el.appendChild(h('div', { class: 'muted', data: { canvasUnavailable: '' } }, 'canvas unavailable'));
+    }
+    el.appendChild(h('div', { class: 'meta tensor-image-caption' }, `${data.dtype} ${fmtDims(data.dims)} · ${describeMapping(shape, raster)}`));
+  } catch (e: unknown) {
+    empty(el);
+    el.appendChild(h('div', { class: 'error', data: { valuesError: '' } }, e instanceof Error ? e.message : String(e)));
+  }
 }
 
 // ---- generation ----------------------------------------------------------------
