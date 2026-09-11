@@ -1,46 +1,61 @@
-# <FILL: project name>
-
-> Loaded into every agent session, including every loop iteration. Keep it short —
-> this is rent paid on every single call. Under ~100 lines.
->
-> The loop appends durable conventions it discovers. You prune.
+# transformersjs-inspector
 
 ## What this is
 
-<FILL: one paragraph — what the project does and who uses it>
+A zero-runtime-dependency TypeScript library: a "Network tab" for local Transformers.js (4.x)
+model calls. `attach(pipe)` wraps the instances the host already holds (`model.sessions[name].run`,
+`tokenizer._call`, `model.generate`, `pipe._call`), emits structured-clone-safe events onto an
+`InspectorBus`, and renders them in a shadow-DOM panel. Secondary entries: `preload` (zero-touch
+via `globalThis[Symbol.for('onnxruntime')]`, needs `device: 'auto'`) and `worker` (`postMessage`).
 
 ## Stack
 
-<FILL: language, framework, key libraries, deploy target>
+TypeScript (strict, ESM, `moduleResolution: Bundler`), Vite lib build, Vitest (node + happy-dom),
+ESLint flat config + typescript-eslint, Playwright (Chromium) e2e against the Vite demo. Node >= 20
+(nvm: `~/.nvm/versions/node/v22.14.0/bin`). `@huggingface/transformers@4.2.0` is a dev dep for
+types and the ORT version pin only.
 
 ## Commands
 
 ```bash
-<FILL: install>
-<FILL: dev>
-<FILL: typecheck>
-<FILL: test>
-<FILL: lint>
-<FILL: build>
+npm install
+npm run dev          # Vite demo on :5173 (vite.demo.config.ts)
+npm run typecheck    # tsc -p tsconfig.json --noEmit
+npm test             # vitest run, offline, test/**/*.test.ts only
+npm run lint         # eslint .
+npm run build        # vite build (dist/index.js) + tsc -p tsconfig.build.json (dist/*.d.ts)
+npm run e2e          # playwright test (needs `npx playwright install chromium` once)
 ```
 
 ## Layout
 
 ```
-<FILL: the 6-10 directories that matter, one line each — not the full tree>
+src/         library: index.ts, events.ts, bus.ts, store.ts, attach.ts, preload.ts, worker.ts
+src/wrap/    instance wrappers: session, tokenizer, generation, pipeline
+src/panel/   vanilla-DOM panel: model (reducer), dom (h()), styles, render, panel
+test/        Vitest unit tests + fakes.ts; never touches the network
+demo/        Vite demo pages; Transformers.js loaded from the CDN (demo/tf.ts), not npm
+e2e/         Playwright specs; persistent profile in .cache/pw-profile caches models
+docs/        00-brief, 01-research, 02-plan (read-only), progress.md (append-only)
+spike/       verified wrapping experiments; read-only reference
 ```
 
 ## Conventions
 
-<FILL: the things a competent stranger would get wrong on their first day.
-Not general good practice — this codebase's specific, non-obvious choices.>
-
-- <FILL>
-- <FILL>
+- `src/` never imports `@huggingface/transformers` or `onnxruntime-web` at runtime
+  (only `src/preload.ts` imports `onnxruntime-web/webgpu`, rewritten to the CDN URL at build).
+  Library-facing shapes are structural types in `src/types.ts`.
+- Every emitted event must survive `structuredClone` and `JSON.stringify`: no bigint, typed
+  arrays, or DOM nodes. Only request *responses* may carry typed arrays.
+- Panel: shadow root + constructed stylesheet; no `innerHTML`, no inline `style=` attributes.
+- `npm test` is offline. Anything needing a browser or a model is `npm run e2e`.
+- `import type` is enforced (`consistent-type-imports`); `verbatimModuleSyntax` is on.
+- `spike/` is read-only reference for the verified wrapping code.
 
 ## Do not
 
-- <FILL: generated files, vendored code, anything hand-edited that looks generated>
-- <FILL: the deprecated module people keep extending by accident>
+- Edit `node_modules`, `dist/`, or `dist-demo/` (generated).
+- Edit `docs/00-brief.md`, `docs/01-research.md`, `docs/02-plan.md`, or anything in `spike/`.
+- Add runtime dependencies or a UI framework; dev deps stay at the 10 listed in the plan.
 
 <!-- loop-learned conventions appended below -->

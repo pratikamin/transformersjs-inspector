@@ -1,0 +1,45 @@
+{
+  "name": "transformersjs-inspector",
+  "version": "0.1.0",
+  "description": "A Network-tab-style inspector for Transformers.js pipelines: sessions, tokenizer, per-step logits, results.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": [
+    "./dist/preload.js"
+  ],
+  "scripts": {
+    "dev": "vite --config vite.demo.config.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "lint": "eslint .",
+    "build": "vite build && tsc -p tsconfig.build.json",
+    "build:demo": "vite build --config vite.demo.config.ts",
+    "e2e": "playwright test",
+    "screenshots": "playwright test e2e/screenshots.spec.ts"
+  },
+  "peerDependencies": {
+    "@huggingface/transformers": ">=4 <5"
+  },
+  "peerDependenciesMeta": {
+    "@huggingface/transformers": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@huggingface/transformers": "4.2.0",
+    "@playwright/test": "1.63.0",
+    "@types/node": "22.20.2",
+    "eslint": "10.10.0",
+    "happy-dom": "20.14.3",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.70.0",
+    "vite": "8.3.0",
+    "vitest": "5.0.0"
+  }
+}

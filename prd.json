@@ -35,7 +35,7 @@
         "vite.config.ts test.include is test/**/*.test.ts so e2e/ is never picked up by npm test",
         "AGENTS.md is filled in (no template placeholders left) under 60 lines with the commands, layout and the conventions named in the plan"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": 2,

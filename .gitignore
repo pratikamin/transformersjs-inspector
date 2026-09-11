@@ -1,4 +1,8 @@
 node_modules/
 dist/
+dist-demo/
+.cache/
+test-results/
+playwright-report/
 .DS_Store
 *.log
