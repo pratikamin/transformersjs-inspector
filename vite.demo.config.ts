@@ -17,9 +17,12 @@ export default defineConfig({
     outDir: '../dist-demo',
     emptyOutDir: true,
     rollupOptions: {
-      input: { index: page('index.html'), preload: page('preload.html') },
+      input: { index: page('index.html'), preload: page('preload.html'), worker: page('worker.html') },
     },
   },
+  // `demo/inference.worker.ts` imports `./tf.ts`, whose top-level `await import(CDN)` only
+  // works in a *module* worker; the default IIFE worker format cannot carry it.
+  worker: { format: 'es' },
   server: {
     port: 5173,
     strictPort: true,

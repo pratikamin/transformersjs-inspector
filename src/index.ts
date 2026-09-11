@@ -6,6 +6,8 @@ export { getDefaultBus, getDefaultStore, ensurePanel } from './default';
 export { WRAPPED } from './wrap/session';
 export { InspectorBus, InspectorError, loopbackPair } from './bus';
 export type { Transport, WireMessage } from './bus';
+export { messagePortTransport, connectWorker, exposeToPage } from './worker';
+export type { PortLike } from './worker';
 export { TensorStore } from './store';
 export { mountPanel } from './panel/panel';
 export type { PanelOptions, InspectorPanel } from './panel/panel';

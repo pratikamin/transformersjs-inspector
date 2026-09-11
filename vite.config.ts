@@ -4,7 +4,7 @@ import { ORT_CDN_URL, ORT_SPECIFIER } from './vite.shared.ts';
 export default defineConfig({
   build: {
     lib: {
-      entry: { index: 'src/index.ts', preload: 'src/preload.ts' },
+      entry: { index: 'src/index.ts', preload: 'src/preload.ts', worker: 'src/worker.ts' },
       formats: ['es'],
     },
     target: 'es2022',

@@ -89,7 +89,7 @@
       ],
       "acceptanceCriteria": [
         "src/panel/model.ts exports CallView, RunView, StepView, PanelState, createState and reduce as specified in the plan",
-        "test/panel-model.test.ts proves reduce(fixtureEvents()) yields 2 calls with tokenize/runs/steps/result attached to the right call, orphan run:start (callId null) opens a synthetic call labelled 'direct \u00b7 <session>', orphan logits/token events attach to the newest open call, and the maxCalls cap drops the oldest",
+        "test/panel-model.test.ts proves reduce(fixtureEvents()) yields 2 calls with tokenize/runs/steps/result attached to the right call, orphan run:start (callId null) opens a synthetic call labelled 'direct · <session>', orphan logits/token events attach to the newest open call, and the maxCalls cap drops the oldest",
         "npm test passes offline"
       ],
       "passes": true
@@ -126,7 +126,7 @@
         "test/panel.test.ts"
       ],
       "acceptanceCriteria": [
-        "Each tensor row with an id has a 'Load values' button (data-action=load) which calls bus.request('tensor', {id}) and renders up to 4096 values plus an '\u2026 N more' note, or the error string when the response has error",
+        "Each tensor row with an id has a 'Load values' button (data-action=load) which calls bus.request('tensor', {id}) and renders up to 4096 values plus an '… N more' note, or the error string when the response has error",
         "Expanded rows with steps render a Generation section: one block per step with token id/text and a top-k table whose rows show token, id, logit, prob and a .bar whose width is set via CSSOM (element.style.width), not a style attribute",
         "test/panel.test.ts proves: a bus.handle('tensor') fake returning a Float32Array leads to numbers rendered after clicking load; an {error:'evicted'} response renders the word 'evicted'; the generation fixture renders 3 steps with 10 top-k rows each",
         "No tensor request is issued before the load button is clicked (spy on bus.request)",
@@ -287,7 +287,7 @@
         "No file under src/panel/ is modified by this story",
         "npm test, npm run typecheck and npm run lint pass"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": 14,
