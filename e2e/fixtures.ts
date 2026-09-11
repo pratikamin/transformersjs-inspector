@@ -49,15 +49,16 @@ export const READY_TIMEOUT = 60_000;
 
 /**
  * Waits for the section's Run button (shipped `disabled`, enabled by `demo/main.ts` once the
- * CDN import has resolved), fills the textarea, clicks Run and waits for
+ * CDN import has resolved), fills the textarea when `text` is given (a section without one,
+ * like image classification, takes no text), clicks Run and waits for
  * `[data-task=<task>][data-status="done"]`. Fails fast, quoting the page's progress line and
  * output, when the section reports `error` or never finishes.
  */
-export async function runTask(page: Page, task: string, text: string): Promise<Locator> {
+export async function runTask(page: Page, task: string, text?: string): Promise<Locator> {
   const section = page.locator(`[data-task="${task}"]`);
   const run = section.getByRole('button', { name: 'Run' });
   await expect(run, 'demo page did not finish loading Transformers.js').toBeEnabled({ timeout: READY_TIMEOUT });
-  await section.locator('textarea').fill(text);
+  if (text !== undefined) await section.locator('textarea').fill(text);
   await run.click();
   const describe = async (): Promise<string> =>
     `status=${await section.getAttribute('data-status')} progress="${await page.locator('[data-progress]').textContent()}" output="${(await section.locator('[data-output]').textContent())?.slice(0, 300)}"`;
@@ -71,3 +72,16 @@ export async function runTask(page: Page, task: string, text: string): Promise<L
   await expect(page.locator(`[data-task="${task}"][data-status="done"]`)).toHaveCount(1);
   return section;
 }
+
+/** `<section class="section">` of an expanded call whose `<h3>` is exactly `title`. */
+export function sectionTitled(details: Locator, title: string): Locator {
+  return details.locator('section.section').filter({ has: details.page().locator('h3', { hasText: new RegExp(`^${title}$`) }) });
+}
+
+/** The `[data-tensor]` row named `name` inside `table.tensors`. */
+export function tensorRow(scope: Locator, name: string): Locator {
+  return scope.locator('table.tensors tr[data-tensor]').filter({ has: scope.page().locator('td.name', { hasText: new RegExp(`^${name}$`) }) });
+}
+
+/** The dims cell of a tensor row (third column). */
+export const dimsOf = (row: Locator): Locator => row.locator('td').nth(2);

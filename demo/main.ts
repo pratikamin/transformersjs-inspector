@@ -3,10 +3,12 @@
  * task registry below: the pipeline is built lazily on the first Run, `attach(pipe)` is
  * called the moment `pipeline()` resolves (default bus, auto-mounted panel), and the
  * section's `data-status` cycles `idle → loading → running → done | error`. Adding a task is
- * one `defineTask` entry plus one section in the HTML. `bench()` times the feature-extraction
+ * one `defineTask` entry plus one section in the HTML. A section without a `<textarea>` runs
+ * with `text = ''` and finds its own input (image classification reads the section's
+ * `<canvas data-source>`, painted by `drawSample` on load). `bench()` times the feature-extraction
  * pipeline detached and attached (see the Benchmark button) and publishes `window.__bench`.
  */
-import type { ProgressInfo, Tensor, TextClassificationOutput, TextGenerationOutput } from '@huggingface/transformers';
+import type { ImageClassificationOutput, ProgressInfo, Tensor, TextClassificationOutput, TextGenerationOutput } from '@huggingface/transformers';
 import type { AttachHandle, PanelOptions } from '../src/index';
 import { VERSION, attach, ensurePanel, getDefaultBus } from '../src/index';
 import { tf } from './tf';
@@ -39,6 +41,7 @@ type Status = 'idle' | 'loading' | 'running' | 'done' | 'error';
 interface TaskSpec<P, R> {
   label: string;
   load(progress_callback: (p: ProgressInfo) => void): Promise<P>;
+  /** `text` is the section's textarea value, or `''` for a section without one. */
   run(pipe: P, text: string): Promise<R>;
   format(result: R): string;
 }
@@ -125,6 +128,39 @@ function formatClassification(r: TextClassificationOutput | TextClassificationOu
   return `${label} · ${score.toFixed(4)}`;
 }
 
+function formatImageClassification(r: ImageClassificationOutput): string {
+  return r.map(({ label, score }) => `${label} · ${score.toFixed(4)}`).join('\n');
+}
+
+/**
+ * The demo's synthetic image: a diagonal blue→yellow→red gradient with a white disc, drawn
+ * the same way on every load so runs (and the thumbnail and `pixel_values` previews in the
+ * panel) are reproducible without committing a binary asset. The classifier's answer is
+ * whatever ImageNet class a disc on a gradient resembles; the point is the tensors, not the label.
+ */
+export function drawSample(canvas: HTMLCanvasElement): void {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  const { width, height } = canvas;
+  const gradient = ctx.createLinearGradient(0, 0, width, height);
+  gradient.addColorStop(0, '#1e5aa8');
+  gradient.addColorStop(0.5, '#f2c14e');
+  gradient.addColorStop(1, '#c0392b');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, width, height);
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.arc(width * 0.6, height * 0.4, Math.min(width, height) * 0.22, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+/** The `<canvas data-source>` of a `[data-task]` section; the image tasks read their input from it. */
+function sourceCanvas(task: string): HTMLCanvasElement {
+  const canvas = document.querySelector<HTMLCanvasElement>(`[data-task="${task}"] canvas[data-source]`);
+  if (!canvas) throw new Error(`${task}: the section has no canvas[data-source]`);
+  return canvas;
+}
+
 /** One entry per `[data-task]` section. */
 export const TASKS: Record<string, Task> = {
   'feature-extraction': defineTask({
@@ -145,6 +181,15 @@ export const TASKS: Record<string, Task> = {
     load: (progress_callback) => tf.pipeline('text-classification', 'Xenova/distilbert-base-uncased-finetuned-sst-2-english', { progress_callback }),
     run: (pipe, text) => pipe(text),
     format: formatClassification,
+  }),
+  'image-classification': defineTask({
+    label: 'image-classification · mobilenet_v2',
+    // 3.7 MB quantized; one session, ~10 ms on wasm. Exercises the input thumbnail and the
+    // `pixel_values [1, 3, 224, 224]` tensor image in the panel.
+    load: (progress_callback) => tf.pipeline('image-classification', 'onnx-community/mobilenet_v2_1.0_224', { progress_callback }),
+    // `RawImage.fromCanvas` is synchronous in 4.2.0 and yields a 4-channel RGBA image.
+    run: (pipe) => pipe(tf.RawImage.fromCanvas(sourceCanvas('image-classification')), { top_k: 3 }),
+    format: formatImageClassification,
   }),
 };
 
@@ -234,7 +279,7 @@ function wireSection(section: HTMLElement): void {
   const textarea = section.querySelector<HTMLTextAreaElement>('textarea');
   const button = section.querySelector<HTMLButtonElement>('[data-run]');
   const output = section.querySelector<HTMLElement>('[data-output]');
-  if (!task || !textarea || !button || !output) {
+  if (!task || !button || !output) {
     console.warn(`demo: section "${name}" is incomplete or has no task entry`);
     return;
   }
@@ -252,7 +297,7 @@ function wireSection(section: HTMLElement): void {
         await task.load(onProgress);
       }
       setStatus('running');
-      output.textContent = await task.run(textarea.value);
+      output.textContent = await task.run(textarea?.value ?? '');
       setStatus('done');
     } catch (e: unknown) {
       output.textContent = e instanceof Error ? (e.stack ?? e.message) : String(e);
@@ -289,5 +334,6 @@ function wireBench(): void {
 
 const versionOut = document.querySelector<HTMLOutputElement>('[data-version]');
 if (versionOut) versionOut.textContent = VERSION;
+for (const canvas of document.querySelectorAll<HTMLCanvasElement>('canvas[data-source]')) drawSample(canvas);
 for (const section of document.querySelectorAll<HTMLElement>('section[data-task]')) wireSection(section);
 wireBench();

@@ -20,6 +20,7 @@
       [data-bench-status='error']::after { color: #b00020; }
       [data-bench-status='done']::after { color: #007a33; }
       .progress { color: #666; font-size: 12px; min-height: 1.2em; }
+      canvas[data-source] { display: block; border: 1px solid #ccc; }
     </style>
   </head>
   <body>
@@ -48,6 +49,17 @@
     <section data-task="text-classification" data-status="idle">
       <h2>Text classification <small>Xenova/distilbert-base-uncased-finetuned-sst-2-english</small></h2>
       <textarea>The inspector is a delight to use.</textarea>
+      <p><button type="button" data-run disabled>Run</button></p>
+      <pre data-output></pre>
+    </section>
+
+    <section data-task="image-classification" data-status="idle">
+      <h2>Image classification <small>onnx-community/mobilenet_v2_1.0_224 · top_k 3</small></h2>
+      <p>
+        No text here: the input is this 224×224 canvas, painted by <code>main.ts</code> on load (a gradient
+        with a disc, the same every time) and passed to the pipeline as <code>RawImage.fromCanvas(canvas)</code>.
+      </p>
+      <canvas data-source width="224" height="224"></canvas>
       <p><button type="button" data-run disabled>Run</button></p>
       <pre data-output></pre>
     </section>

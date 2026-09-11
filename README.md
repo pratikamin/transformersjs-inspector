@@ -135,6 +135,13 @@ runs in a worker the image preview is metadata only (the waveform is plain arith
 works everywhere). The tensor **Preview** is unaffected: the bytes come back over the bridge
 and are painted on the page.
 
+The demo's **Image classification** section (`onnx-community/mobilenet_v2_1.0_224`, 3.7 MB
+quantized, `top_k: 3`) exercises both halves without a binary asset: it paints a 224×224
+gradient with a disc on a `<canvas>` at load, passes `RawImage.fromCanvas(canvas)` to the
+pipeline, and the panel shows the thumbnail in Input, `pixel_values float32 [1, 3, 224, 224]`
+with **Preview** in the session run, and the `label`/`score` list as the Result
+(`e2e/media.spec.ts`).
+
 ### Where the panel sits
 
 The panel is fixed to a corner of whatever it is mounted in (`document.body` by default, or
@@ -361,12 +368,13 @@ npm run screenshots  # rewrites docs/img/panel-*.png from the demo (not part of 
 ```
 
 `npm run e2e` starts the demo server itself (or reuses one on :5173). The Chromium profile
-under `.cache/pw-profile` persists between runs, so the two fixture models
-(`Xenova/all-MiniLM-L6-v2`, the encoder, and `onnx-community/tiny-random-LlamaForCausalLM-ONNX`,
-a 41 MB randomly initialised decoder) and the CDN module are downloaded once and served from
-the browser cache afterwards; delete that directory to force a fresh download. The demo also
-has a text-classification section (`Xenova/distilbert-base-uncased-finetuned-sst-2-english`)
-that the e2e does not exercise.
+under `.cache/pw-profile` persists between runs, so the three fixture models
+(`Xenova/all-MiniLM-L6-v2`, the encoder; `onnx-community/tiny-random-LlamaForCausalLM-ONNX`,
+a 41 MB randomly initialised decoder; and `onnx-community/mobilenet_v2_1.0_224`, a 3.7 MB
+image classifier) and the CDN module are downloaded once and served from the browser cache
+afterwards; delete that directory to force a fresh download. The demo also has a
+text-classification section (`Xenova/distilbert-base-uncased-finetuned-sst-2-english`) that
+the e2e does not exercise.
 
 Package layout: `.` (`attach`, `InspectorBus`, `TensorStore`, `mountPanel`, the worker
 helpers, all types), `./preload` (side-effect entry) and `./worker` (`connectWorker`,
