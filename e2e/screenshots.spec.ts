@@ -68,3 +68,17 @@ test('panel-generation.png: text generation with per-step top-k', async ({ page 
 
   await shoot(panel, generation, 'panel-generation.png');
 });
+
+test('panel-dark.png: text generation under theme: dark', async ({ page }) => {
+  await page.goto('/?theme=dark');
+  await runTask(page, 'text-generation', 'hi');
+  const { panel, details } = await expandOnlyRow(page);
+
+  await expect(panel).toHaveAttribute('data-theme', 'dark');
+  // --tjsi-bg of DARK_VARS (#0d1117): the explicit option must win whatever the OS prefers.
+  await expect(panel.locator('.panel')).toHaveCSS('background-color', 'rgb(13, 17, 23)');
+  const generation = sectionTitled(details, 'Generation');
+  await expect(generation.locator('table.topk tbody tr.picked')).toHaveCount(3);
+
+  await shoot(panel, generation, 'panel-dark.png');
+});

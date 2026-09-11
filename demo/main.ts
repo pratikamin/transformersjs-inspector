@@ -7,9 +7,24 @@
  * pipeline detached and attached (see the Benchmark button) and publishes `window.__bench`.
  */
 import type { ProgressInfo, Tensor, TextClassificationOutput, TextGenerationOutput } from '@huggingface/transformers';
-import type { AttachHandle } from '../src/index';
+import type { AttachHandle, PanelOptions } from '../src/index';
 import { VERSION, attach, ensurePanel, getDefaultBus } from '../src/index';
 import { tf } from './tf';
+
+const THEMES = ['auto', 'light', 'dark'] as const;
+type Theme = (typeof THEMES)[number];
+const isTheme = (v: string | null): v is Theme => (THEMES as readonly string[]).includes(v ?? '');
+
+/**
+ * Panel options from the page URL, so the e2e specs and the README screenshots can pick a
+ * variant without a UI: `?theme=dark` forces the dark theme (`light` forces light; anything
+ * else, or no parameter, is `auto`).
+ */
+export function panelOptionsFromQuery(): PanelOptions {
+  const params = new URLSearchParams(window.location.search);
+  const theme = params.get('theme');
+  return isTheme(theme) ? { theme } : {};
+}
 
 type Status = 'idle' | 'loading' | 'running' | 'done' | 'error';
 
@@ -40,7 +55,7 @@ function defineTask<P, R>(spec: TaskSpec<P, R>): Task {
   let handle: AttachHandle | null = null;
   const wrap = (p: P): void => {
     // The one-line integration: wrap the instance the page already holds.
-    handle = attach(p, { label: spec.label });
+    handle = attach(p, { label: spec.label, panel: panelOptionsFromQuery() });
   };
   return {
     label: spec.label,
