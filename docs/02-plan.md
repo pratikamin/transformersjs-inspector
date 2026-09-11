@@ -148,7 +148,7 @@ and `npm run build` all pass on an almost-empty `src/`.
 | `test/smoke.test.ts` | asserts `VERSION` matches `package.json`. |
 | `demo/index.html`, `demo/main.ts` | placeholder page that imports `../src/index.ts` and prints `VERSION`; replaced in Phase 5. |
 | `.gitignore` | add `dist-demo/`, `.cache/`, `test-results/`, `playwright-report/`. |
-| `AGENTS.md` | Fill the template (< 60 lines): what this is, stack, the six commands, layout (`src/`, `src/wrap/`, `src/panel/`, `test/`, `demo/`, `e2e/`, `docs/`, `spike/`), conventions (no runtime import of transformers in `src/`, events must pass `structuredClone`, no inline `style=`, `npm test` is offline, `spike/` is read-only reference), do-not (edit `node_modules`, edit `docs/00-*`/`01-*`/`02-*`). |
+| `AGENTS.md` | Fill the template (< 60 lines): what this is, stack, the six commands, layout (`src/`, `src/wrap/`, `src/panel/`, `test/`, `demo/`, `e2e/`, `docs/`, `docs/`), conventions (no runtime import of transformers in `src/`, events must pass `structuredClone`, no inline `style=`, `npm test` is offline), do-not (edit `node_modules`, edit `docs/00-*`/`01-*`/`02-*`). |
 
 **Verify**
 
@@ -267,7 +267,7 @@ budget.
 | `e2e/fixtures.ts` | `export const test = base.extend({ context: async ({}, use) => { const ctx = await chromium.launchPersistentContext('.cache/pw-profile', { headless: true }); await use(ctx); await ctx.close(); } })` so the browser Cache API keeps model and CDN files across runs. Helper `runTask(page, task, text)` clicks Run and waits for `[data-task=...][data-status="done"]`. |
 | `e2e/demo.spec.ts` | feature extraction: after one run the panel badge reads `1`; open panel → one `[data-call]` row whose label contains `feature-extraction`; expand → tokenizer chips include `[CLS]`, session run rows list `input_ids`, `attention_mask`, `token_type_ids` with dims `[1, N]` and an output `last_hidden_state` with dims `[1, N, 384]`; click `Load values` on `last_hidden_state` → at least 384 numbers rendered; the `Result` section shows a `$tensor` with dims `[1, 384]`. |
 | `e2e/generation.spec.ts` | text generation with `max_new_tokens: 3`: exactly 3 `run` rows in the call (one prefill + two decode, or 3 — assert `>= 3`), a Generation section with 3 steps, each with a top-k table of 10 rows whose probabilities are within `(0, 1]` and sorted descending, and 3 `token` ids; decoded result in the `Result` section equals the page's `[data-output]`. |
-| `e2e/overhead.spec.ts` | clicks `Benchmark`, reads `window.__bench`, prints `attached/detached` medians to the test output, asserts `ratio < 1.25`. The strict ~5 % figure from the brief is read from the same output and recorded by hand in `docs/progress.md`; a 5 % assertion on ~10 ms runs is noise-bound and would flake. |
+| `e2e/overhead.spec.ts` | clicks `Benchmark`, reads `window.__bench`, prints `attached/detached` medians to the test output, asserts `ratio < 1.25`. The strict ~5 % figure from the brief is read from the same output and recorded by hand in the README; a 5 % assertion on ~10 ms runs is noise-bound and would flake. |
 | `package.json` | no script changes (`e2e` exists); README gets a line about `npx playwright install chromium`. |
 
 **Verify**
