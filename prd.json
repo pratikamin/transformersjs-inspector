@@ -1,0 +1,315 @@
+{
+  "project": "transformersjs-inspector",
+  "branchName": "feat/inspector-v1",
+  "planDoc": "docs/02-plan.md",
+  "verify": {
+    "typecheck": "npm run typecheck",
+    "test": "npm test",
+    "lint": "npm run lint"
+  },
+  "stories": [
+    {
+      "id": 1,
+      "phase": "Phase 1: Toolchain",
+      "title": "Scaffold package.json, TypeScript, Vite, Vitest, ESLint and a smoke test",
+      "files": [
+        "package.json",
+        "tsconfig.json",
+        "tsconfig.build.json",
+        "vite.config.ts",
+        "vite.demo.config.ts",
+        "eslint.config.js",
+        "src/index.ts",
+        "test/smoke.test.ts",
+        "demo/index.html",
+        "demo/main.ts",
+        ".gitignore",
+        "AGENTS.md"
+      ],
+      "acceptanceCriteria": [
+        "package.json has scripts dev, typecheck, test, lint, build, build:demo, e2e, screenshots exactly as named in docs/02-plan.md Phase 1, type=module, engines.node>=20, files=[dist], sideEffects=[./dist/preload.js], optional peer @huggingface/transformers >=4 <5, and only the 10 dev dependencies listed in the plan (transformers pinned to 4.2.0)",
+        "npm run typecheck, npm test, npm run lint and npm run build all exit 0",
+        "test/smoke.test.ts asserts VERSION exported from src/index.ts equals package.json version",
+        "npm run build writes dist/index.js and dist/index.d.ts",
+        "eslint.config.js ignores dist/, dist-demo/, spike/, docs/, .cache/ and lints src/, test/, demo/, e2e/",
+        "vite.config.ts test.include is test/**/*.test.ts so e2e/ is never picked up by npm test",
+        "AGENTS.md is filled in (no template placeholders left) under 60 lines with the commands, layout and the conventions named in the plan"
+      ],
+      "passes": false
+    },
+    {
+      "id": 2,
+      "phase": "Phase 2: Event bus, tensor summaries, tensor store",
+      "title": "Event schema, structural types, InspectorBus with Transport and loopbackPair",
+      "files": [
+        "src/events.ts",
+        "src/types.ts",
+        "src/bus.ts",
+        "test/fakes.ts",
+        "test/bus.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "src/events.ts exports TensorSummary, InputPreview, TopKEntry, InspectorEvent (the seven event types call:start, tokenize, run:start, run:end, logits, token, result), RequestMap, TensorData and isInspectorEvent exactly as in the plan's Event schema section",
+        "src/bus.ts exports InspectorBus (emit, on, history with maxHistory cap, handle, request with timeout, connect, clear), Transport, WireMessage, loopbackPair and InspectorError",
+        "test/fakes.ts exports fakeTensor (cpu and gpu-buffer variants; gpu data getter throws, getData resolves), fakeSession, fakeTokenizer, fakeGenerativeModel, fakePipeline and fixtureEvents with the shapes recorded in docs/01-research.md",
+        "test/bus.test.ts passes: unsubscribe works, history is capped, request/handle round trip and timeout, loopbackPair relays each event exactly once with no echo, requests are forwarded to the peer that has a handler, and every fixtureEvents() entry survives structuredClone and JSON round trip unchanged",
+        "npm test runs offline and exits 0"
+      ],
+      "passes": false
+    },
+    {
+      "id": 3,
+      "phase": "Phase 2: Event bus, tensor summaries, tensor store",
+      "title": "Tensor summariser, byte-budgeted TensorStore with lazy readback, input/result previews",
+      "files": [
+        "src/summarize.ts",
+        "src/store.ts",
+        "src/preview.ts",
+        "test/summarize.test.ts",
+        "test/store.test.ts",
+        "test/preview.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "src/summarize.ts exports DEFAULT_HEAD=8, bytesPerElement, elementCount, isCpuResident, headOf, summarizeTensor and readTensor with the behaviour in the plan",
+        "test/summarize.test.ts proves a gpu-buffer tensor is summarised with head=null without its data getter ever being invoked, int64 heads are plain numbers, bytes follow the dtype table, and readTensor uses getData() for non-CPU tensors",
+        "src/store.ts exports TensorStore (put, read, has, bytes, count, clear, attachTo) with a 64 MiB default budget and insertion-order eviction; the same tensor object gets the same id",
+        "test/store.test.ts proves eviction by byte budget yields {error:'evicted'}, unknown ids yield {error:'unknown'}, and attachTo(bus) answers bus.request('tensor', {id}) with the typed array",
+        "src/preview.ts exports previewInput and toCloneSafe; test/preview.test.ts covers every InputPreview branch, cycles, bigint, tensor-like values and truncation",
+        "grep -rn 'document\\|window\\|@huggingface' src/ returns nothing"
+      ],
+      "passes": false
+    },
+    {
+      "id": 4,
+      "phase": "Phase 3: Panel",
+      "title": "Panel state reducer (pure, node-tested)",
+      "files": [
+        "src/panel/model.ts",
+        "test/panel-model.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "src/panel/model.ts exports CallView, RunView, StepView, PanelState, createState and reduce as specified in the plan",
+        "test/panel-model.test.ts proves reduce(fixtureEvents()) yields 2 calls with tokenize/runs/steps/result attached to the right call, orphan run:start (callId null) opens a synthetic call labelled 'direct · <session>', orphan logits/token events attach to the newest open call, and the maxCalls cap drops the oldest",
+        "npm test passes offline"
+      ],
+      "passes": false
+    },
+    {
+      "id": 5,
+      "phase": "Phase 3: Panel",
+      "title": "Shadow-DOM panel: mountPanel, constructed stylesheet, collapsed badge, rows and expansion",
+      "files": [
+        "src/panel/dom.ts",
+        "src/panel/styles.ts",
+        "src/panel/render.ts",
+        "src/panel/panel.ts",
+        "src/index.ts",
+        "test/panel.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "src/panel/panel.ts exports mountPanel(bus, opts) returning InspectorPanel {host, shadow, open, close, isOpen, clear, destroy}; host is <div data-tjsi-panel> with an open shadow root and styles adopted via CSSStyleSheet.replaceSync with a <style> fallback",
+        "src/panel/render.ts exports renderRowSummary and renderRowDetails rendering the Input, Tokenizer, Session runs (one <tr data-tensor=id> per tensor with name, dtype, dims, location, bytes, head) and Result sections; no innerHTML and no style= attributes anywhere under src/panel (grep returns nothing)",
+        "test/panel.test.ts (happy-dom) proves: while closed, emitting fixture events creates zero [data-call] elements and the badge reads the call count; open() renders one row per call; clicking expand renders tokenizer chips and tensor rows with dims text '[1, 7, 384]'; destroy() removes the host",
+        "src/index.ts exports mountPanel, InspectorBus, loopbackPair, TensorStore and the event types",
+        "npm test, npm run typecheck and npm run lint pass"
+      ],
+      "passes": false
+    },
+    {
+      "id": 6,
+      "phase": "Phase 3: Panel",
+      "title": "Panel lazy tensor values and per-step top-k generation section",
+      "files": [
+        "src/panel/render.ts",
+        "src/panel/panel.ts",
+        "src/panel/styles.ts",
+        "test/panel.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "Each tensor row with an id has a 'Load values' button (data-action=load) which calls bus.request('tensor', {id}) and renders up to 4096 values plus an '… N more' note, or the error string when the response has error",
+        "Expanded rows with steps render a Generation section: one block per step with token id/text and a top-k table whose rows show token, id, logit, prob and a .bar whose width is set via CSSOM (element.style.width), not a style attribute",
+        "test/panel.test.ts proves: a bus.handle('tensor') fake returning a Float32Array leads to numbers rendered after clicking load; an {error:'evicted'} response renders the word 'evicted'; the generation fixture renders 3 steps with 10 top-k rows each",
+        "No tensor request is issued before the load button is clicked (spy on bus.request)",
+        "npm test, npm run typecheck and npm run lint pass"
+      ],
+      "passes": false
+    },
+    {
+      "id": 7,
+      "phase": "Phase 4: Wrappers and attach()",
+      "title": "WrapContext, session wrapper and tokenizer wrapper",
+      "files": [
+        "src/context.ts",
+        "src/wrap/session.ts",
+        "src/wrap/tokenizer.ts",
+        "test/wrap-session.test.ts",
+        "test/wrap-tokenizer.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "src/context.ts exports InspectorOptions (head=8, topK=10, retainBytes=64 MiB, retainLogits=false, label) and WrapContext with currentCallId, tokenizer, nextCallId, nextRunId, tokenToString, now",
+        "src/wrap/session.ts exports WRAPPED = Symbol.for('transformersjs-inspector.wrapped'), wrapSession(session, name, ctx) and wrapSessions(sessions, ctx), both returning a restore function; the wrapper summarises feeds before invoking the original run",
+        "test/wrap-session.test.ts proves: run:start is emitted (with input summaries) before the fake run resolves, run:end carries matching runId, outputs and ms, a gpu-buffer output has head=null, a throwing run emits run:end with error and rethrows, wrapping twice is a no-op, and restore() reinstates the original run function identity",
+        "src/wrap/tokenizer.ts exports wrapTokenizer(tok, ctx) wrapping the instance _call; test/wrap-tokenizer.test.ts proves tokenize events carry ids as number[][] and token strings from _tokenizer.id_to_token for [1,n] and [2,n] int64 input_ids, and a tokenizer without _call produces one console.warn and no throw",
+        "npm test, npm run typecheck and npm run lint pass"
+      ],
+      "passes": false
+    },
+    {
+      "id": 8,
+      "phase": "Phase 4: Wrappers and attach()",
+      "title": "Generation wrapper: duck-typed logits processor, streamer and top-k",
+      "files": [
+        "src/wrap/generation.ts",
+        "test/generation.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "src/wrap/generation.ts exports topKFromLogits(data, k) and wrapGenerate(model, ctx) returning a restore function; the wrapper merges the caller's logits_processor (iterable or .processors) and streamer as described in the plan and never imports @huggingface/transformers",
+        "test/generation.test.ts proves topKFromLogits returns k entries sorted by prob descending with probs in (0,1] summing to <= 1 and the correct ids for a hand-built logits array",
+        "With fakeGenerativeModel (3 steps): exactly 3 logits events with vocab and 10 topK entries and exactly 3 token events with step 0..2; the first streamer.put (prompt) emits no token event; a host-supplied processor list and streamer are still invoked",
+        "With retainLogits=true each logits event carries a tensorId readable from the store; with the default false, tensorId is null",
+        "npm test, npm run typecheck and npm run lint pass"
+      ],
+      "passes": false
+    },
+    {
+      "id": 9,
+      "phase": "Phase 4: Wrappers and attach()",
+      "title": "Pipeline-call wrapper, attach()/detach(), default bus and panel auto-mount",
+      "files": [
+        "src/wrap/pipeline.ts",
+        "src/attach.ts",
+        "src/default.ts",
+        "src/index.ts",
+        "test/attach.test.ts"
+      ],
+      "acceptanceCriteria": [
+        "src/attach.ts exports attach(pipe, opts?) and the AttachOptions/AttachHandle types from the plan; attach on a non-pipeline throws InspectorError with the message in the plan",
+        "src/default.ts exports getDefaultBus, getDefaultStore (kept on globalThis[Symbol.for('transformersjs-inspector')]) and ensurePanel (mounts once per bus, no-op when document is undefined)",
+        "test/attach.test.ts proves: attach(fakePipeline(), {panel:false, bus}) then one pipeline call emits call:start, tokenize, run:start, run:end, result in that order sharing one callId; result carries a $tensor summary for a tensor result; every event passes structuredClone; detach() restores _call, tokenizer._call, model.generate and every session.run to their original identities; attaching twice does not double-wrap sessions",
+        "src/index.ts exports attach, getDefaultBus, WRAPPED and the option/handle types",
+        "npm test, npm run typecheck and npm run lint pass"
+      ],
+      "passes": false
+    },
+    {
+      "id": 10,
+      "phase": "Phase 5: Demo page and Playwright e2e",
+      "title": "Demo page with feature extraction, Playwright config with persistent profile, first e2e",
+      "files": [
+        "demo/tf.ts",
+        "demo/index.html",
+        "demo/main.ts",
+        "playwright.config.ts",
+        "e2e/fixtures.ts",
+        "e2e/demo.spec.ts",
+        "README.md"
+      ],
+      "acceptanceCriteria": [
+        "demo/tf.ts loads @huggingface/transformers@4.2.0 from the jsDelivr CDN via a dynamic import (with /* @vite-ignore */) typed as typeof import('@huggingface/transformers')",
+        "demo/index.html has three sections with data-task feature-extraction, text-generation, text-classification, each with textarea, Run button, [data-output] and a data-status attribute cycling idle/loading/running/done/error; demo/main.ts calls attach(pipe, {label}) right after each pipeline() resolves",
+        "playwright.config.ts uses a chromium project and a webServer running npm run dev on :5173; e2e/fixtures.ts overrides context with chromium.launchPersistentContext('.cache/pw-profile') so model files are cached between runs",
+        "npm run e2e -- e2e/demo.spec.ts passes with network: after running Xenova/all-MiniLM-L6-v2 the panel badge reads 1, the expanded row shows tokenizer chips including [CLS], inputs input_ids/attention_mask/token_type_ids with dims [1, N], output last_hidden_state [1, N, 384], Load values renders at least 384 numbers, and the Result section shows a $tensor with dims [1, 384]",
+        "README.md gains a Development section with npm install, npx playwright install chromium, and the six npm scripts",
+        "npm test, npm run typecheck and npm run lint still pass offline"
+      ],
+      "passes": false
+    },
+    {
+      "id": 11,
+      "phase": "Phase 5: Demo page and Playwright e2e",
+      "title": "Text generation and classification in the demo, generation e2e, overhead benchmark",
+      "files": [
+        "demo/index.html",
+        "demo/main.ts",
+        "e2e/generation.spec.ts",
+        "e2e/overhead.spec.ts",
+        "docs/progress.md"
+      ],
+      "acceptanceCriteria": [
+        "The text-generation section runs onnx-community/tiny-random-LlamaForCausalLM-ONNX with {device:'auto'} and {max_new_tokens:3}; the text-classification section runs Xenova/distilbert-base-uncased-finetuned-sst-2-english (not covered by e2e)",
+        "npm run e2e -- e2e/generation.spec.ts passes with network: the call row has >= 3 session run rows, a Generation section with exactly 3 steps each showing 10 top-k rows with probabilities in (0,1] sorted descending and a token id, and the Result section text equals the page's [data-output]",
+        "demo/main.ts implements bench(): 5 warm-up runs, 30 embeddings detached, 30 attached with the panel closed, medians and ratio written to [data-bench] and window.__bench",
+        "npm run e2e -- e2e/overhead.spec.ts passes: prints both medians and asserts ratio < 1.25; the measured ratio is appended to docs/progress.md in this story's entry",
+        "If generate rejects a plain array for logits_processor, the story switches the demo to pass opts.transformers from demo/tf.ts and records that in docs/progress.md; the plain-array path stays the default only if the e2e passes with it",
+        "npm test, npm run typecheck and npm run lint still pass offline"
+      ],
+      "passes": false
+    },
+    {
+      "id": 12,
+      "phase": "Phase 6: Zero-touch preload",
+      "title": "Preload entry via globalThis[Symbol.for('onnxruntime')] with CDN-rewritten ORT import and e2e",
+      "files": [
+        "src/preload-core.ts",
+        "src/preload.ts",
+        "vite.shared.ts",
+        "vite.config.ts",
+        "vite.demo.config.ts",
+        "demo/preload.html",
+        "demo/preload-entry.ts",
+        "demo/preload-host.ts",
+        "test/preload.test.ts",
+        "test/ort-pin.test.ts",
+        "e2e/preload.spec.ts",
+        "README.md"
+      ],
+      "acceptanceCriteria": [
+        "src/preload-core.ts exports OrtLike, ORT_SYMBOL, installPreload(ort, ctx) and isInstalled(); the shim keeps ort.env and ort.Tensor by identity and wraps InferenceSession.create so returned sessions are run-wrapped via wrapSession",
+        "src/preload.ts statically imports onnxruntime-web/webgpu, installs on the default bus/store and mounts the panel when document exists; it is the only file under src/ importing onnxruntime-web",
+        "vite.shared.ts derives ORT_VERSION from node_modules/@huggingface/transformers/package.json dependencies (test/ort-pin.test.ts asserts equality, offline); vite.config.ts externalises onnxruntime-web/webgpu and rewrites it via rollupOptions.output.paths to the jsDelivr ort.webgpu.bundle.min.mjs URL; vite.demo.config.ts aliases the same specifier to that URL",
+        "npm run build produces dist/preload.js under 100 KB containing the string cdn.jsdelivr.net/npm/onnxruntime-web@",
+        "test/preload.test.ts passes offline with a fake ORT: symbol set, created session emits run:start/run:end, double install is a no-op",
+        "npm run e2e -- e2e/preload.spec.ts passes with network: demo/preload.html never calls attach(), uses device:'auto', and the panel shows one row labelled with session#1 and last_hidden_state [1, N, 384]",
+        "README.md has a Zero-touch preload section stating the device:'auto' requirement and the ORT version coupling",
+        "npm test, npm run typecheck and npm run lint pass"
+      ],
+      "passes": false
+    },
+    {
+      "id": 13,
+      "phase": "Phase 7: Web Worker bridge",
+      "title": "messagePortTransport, connectWorker/exposeToPage, worker demo and e2e",
+      "files": [
+        "src/worker.ts",
+        "src/index.ts",
+        "vite.config.ts",
+        "demo/worker.html",
+        "demo/worker-main.ts",
+        "demo/inference.worker.ts",
+        "test/worker.test.ts",
+        "e2e/worker.spec.ts"
+      ],
+      "acceptanceCriteria": [
+        "src/worker.ts exports PortLike, messagePortTransport(port), connectWorker(worker, bus?) and exposeToPage(bus, port?); the transport ignores messages without __tjsi===1 and calls port.start?.()",
+        "test/worker.test.ts passes offline using Node's MessageChannel: an event emitted on the worker-side bus arrives exactly once on the page-side bus, and page.request('tensor', {id}) is answered by the worker-side TensorStore with a Float32Array; ports are closed so the run exits",
+        "vite.config.ts has a worker entry; npm run build produces dist/worker.js that does not contain panel code (grep for 'data-tjsi-panel' returns nothing)",
+        "npm run e2e -- e2e/worker.spec.ts passes with network: demo/worker.html runs Xenova/all-MiniLM-L6-v2 inside a module worker that calls attach(pipe, {bus, panel:false}) and exposeToPage; the page panel shows 1 row with last_hidden_state and Load values renders >= 384 numbers fetched across the worker boundary",
+        "No file under src/panel/ is modified by this story",
+        "npm test, npm run typecheck and npm run lint pass"
+      ],
+      "passes": false
+    },
+    {
+      "id": 14,
+      "phase": "Phase 8: Packaging and README",
+      "title": "Package exports map, README with screenshots, LICENSE, pack check",
+      "files": [
+        "package.json",
+        "README.md",
+        "LICENSE",
+        "e2e/screenshots.spec.ts",
+        "docs/img/panel-embedding.png",
+        "docs/img/panel-generation.png"
+      ],
+      "acceptanceCriteria": [
+        "package.json exports map has '.', './preload' and './worker' entries with types and import conditions pointing at dist/, plus main/types, license MIT, keywords and repository",
+        "npm run build succeeds and node --input-type=module -e \"import('./dist/index.js').then(m => { if (typeof m.attach !== 'function') process.exit(1) })\" exits 0",
+        "npm pack --dry-run lists only dist/**, README.md, LICENSE and package.json",
+        "npm run screenshots writes docs/img/panel-embedding.png and docs/img/panel-generation.png from the demo page, and README.md embeds both",
+        "README.md covers: one-paragraph purpose, attach() usage, options table, event schema pointer, zero-touch preload with the device:'auto' caveat, worker usage, what is not visible (no per-layer activations), development commands and the two fixture models",
+        "npm run build:demo produces dist-demo/index.html; npm test, npm run typecheck and npm run lint pass"
+      ],
+      "passes": false
+    }
+  ]
+}

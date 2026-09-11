@@ -1,0 +1,64 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>spike B: attach after load</title>
+<style> body { font: 13px/1.4 ui-monospace, monospace; margin: 16px; } #log { white-space: pre-wrap; background: #111; color: #ddd; padding: 12px; border-radius: 6px; } h1 { font-size: 16px; } </style>
+<h1>Spike B: one-line attach — wrap <code>pipe.model.sessions[*].run</code> after the pipeline loads</h1>
+<p>Question: with no preload and no device tricks, can a library observe inputs/outputs given only a reference to the pipeline? Also: can it see tokenizer text→ids?</p>
+<div id="log"></div>
+<script type="module">
+  const logEl = document.getElementById('log');
+  const log = (...a) => { logEl.textContent += a.map(x => typeof x === 'string' ? x : JSON.stringify(x)).join(' ') + '\n'; };
+  const summarize = (t) => ({ type: t.type, dims: t.dims, location: t.location,
+    head: t.location === 'cpu' ? Array.from(t.data.slice(0, 6), v => typeof v === 'bigint' ? Number(v) : +v.toFixed?.(4) || v) : '(gpu)' });
+
+  // ---- the library: attach(pipe) ----
+  function attach(pipe) {
+    const events = [];
+    for (const [name, s] of Object.entries(pipe.model.sessions)) {
+      const realRun = s.run.bind(s);
+      s.run = async (feeds, ...rest) => {
+        const id = events.length, t0 = performance.now();
+        const inputs = Object.fromEntries(Object.entries(feeds).map(([k,v]) => [k, summarize(v)]));
+        const out = await realRun(feeds, ...rest);
+        const outputs = Object.fromEntries(Object.entries(out).map(([k,v]) => [k, summarize(v)]));
+        events.push({ id, session: name, inputs, outputs, ms: performance.now()-t0 });
+        log(`[run #${id} ${name}] in`, inputs, '\n   out', outputs, `(${(performance.now()-t0).toFixed(0)}ms)`);
+        return out;
+      };
+    }
+    // tokenizer: Callable → _call. Wrap the instance's _call so text and ids pair up.
+    const tok = pipe.tokenizer;
+    if (tok) {
+      const real = tok._call.bind(tok);
+      tok._call = (text, opts) => {
+        const r = real(text, opts);
+        const ids = Array.from(r.input_ids.data, Number);
+        log('[tokenizer]', JSON.stringify(text), '→', ids.length, 'ids', ids.slice(0, 12), '→ tokens', ids.slice(0, 12).map(id => tok._tokenizer.id_to_token?.(id) ?? tok.decode([id])));
+        return r;
+      };
+    }
+    return events;
+  }
+
+  const tf = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.2.0');
+  log(`[host] transformers.js ${tf.env.version}`);
+  const pipe = await tf.pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
+  const events = attach(pipe);
+  log('[host] attached; sessions =', Object.keys(pipe.model.sessions), 'device =', pipe.model.sessions.model?.config?.device ?? '?');
+  const out = await pipe('The inspector sees everything.', { pooling: 'mean', normalize: true });
+  log('[host] output dims', out.dims);
+
+  // generation: logits per step via a LogitsProcessor + token stream via TextStreamer
+  log('\n[host] loading a tiny text-generation model to test per-step logits…');
+  const gen = await tf.pipeline('text-generation', 'onnx-community/tiny-random-LlamaForCausalLM-ONNX', { device: 'auto' }).catch(e => (log('[host] gen load failed:', e.message), null));
+  if (gen) {
+    attach(gen);
+    class Spy extends tf.LogitsProcessor { _call(input_ids, logits) { log('[logits] step ids=', input_ids[0].length, 'logits dims', logits.dims); return logits; } }
+    const streamer = new tf.TextStreamer(gen.tokenizer, { skip_prompt: true, token_callback_function: (t) => log('[stream] token', Array.from(t, Number)) , callback_function: () => {} });
+    const lp = new tf.LogitsProcessorList(); lp.push(new Spy()); // NOTE: constructor takes no args; [new Spy()] silently yields an empty list
+    const r = await gen('hi', { max_new_tokens: 3, logits_processor: lp, streamer });
+    log('[host] gen out', r[0].generated_text.slice(0, 40));
+  }
+  log(`\nRESULT: ${events.length} session.run call(s) captured via attach().`);
+  document.title = events.length ? 'SPIKE B PASS' : 'SPIKE B FAIL';
+</script>
