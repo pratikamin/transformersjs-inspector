@@ -132,6 +132,7 @@ pre {
 }
 .chip-id { font-size: 10px; color: #57606a; }
 .chip-str { white-space: pre; }
+.ws { background: #ddf4ff; border-radius: 2px; }
 
 .run { margin-bottom: 8px; }
 table.tensors, table.topk { width: 100%; border-collapse: collapse; background: #ffffff; }

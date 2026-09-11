@@ -78,7 +78,8 @@ How it is organised:
   calls; while the panel is collapsed only the badge updates.
 - **Input**: text (truncated to 2000 chars) or texts; images and audio are described by
   metadata only (size, channels, sample count).
-- **Tokenizer**: every `tokenizer(text)` call during the row, as `id / token` chips.
+- **Tokenizer**: every `tokenizer(text)` call during the row, as `id / token` chips (decoded
+  text, with leading or trailing whitespace tinted; the vocab string on hover).
 - **Session runs**: one block per `session.run` (a decoder-only model produces one per
   generated token), each with an Inputs and an Outputs table: `name`, `dtype`, `dims`,
   `location` (`cpu`, `gpu-buffer`, ...), `bytes`, and `head`, the first 8 values. Values
@@ -227,12 +228,20 @@ feed your own UI or a test. Every event survives
 | Event | Carries |
 |---|---|
 | `call:start` | `callId`, `label`, `task`, `input` preview |
-| `tokenize` | `text`, `ids[][]`, `tokens[][]`, `ms` |
+| `tokenize` | `text`, `ids[][]`, `tokens[][]` (decoded text), `raw[][]` (vocab strings), `ms` |
 | `run:start` | `runId`, `session`, `inputs: TensorSummary[]` |
 | `run:end` | `runId`, `session`, `outputs: TensorSummary[]`, `ms`, `error` |
-| `logits` | `step`, `vocab`, `topK: { id, token, logit, prob }[]`, `tensorId` |
-| `token` | `step`, `ids`, `text` |
+| `logits` | `step`, `vocab`, `topK: { id, token, logit, prob, raw }[]`, `tensorId` |
+| `token` | `step`, `ids`, `text` (decoded), `raw` (vocab strings joined) |
 | `result` | `callId`, `result` (tensors as `$tensor` markers), `ms`, `error` |
+
+Token strings come in two forms. `tokens`, `token` and `text` are the tokenizer-decoded
+text of each id (`decode([id], { skip_special_tokens: false, clean_up_tokenization_spaces: false })`),
+which is what the panel shows; `raw` is the vocab string (`id_to_token`), shown on hover.
+`raw` is optional and new in 0.2.0: events without it (an older capture) still render.
+Caveat: decoding one id at a time means a Metaspace (`▁word`) or WordPiece (`##ing`) token
+loses its leading-space or continuation marker in the decoded form (`word`, `ing`); `raw`
+keeps it. A tokenizer without `decode` reports the vocab string in both fields.
 
 A `TensorSummary` is `{ id, name, dtype, dims, location, size, bytes, head }`; the full
 values are fetched with `bus.request('tensor', { id })`, whose response (`TensorData`) is the

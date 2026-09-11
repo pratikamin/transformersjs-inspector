@@ -62,7 +62,7 @@ describe('wrapTokenizer', () => {
     const events = tokenizeEvents(bus);
     expect(events).toHaveLength(1);
     const [ev] = events;
-    expect(ev).toMatchObject({ callId: null, text: 'the quick brown fox.', ids: [FOX_IDS], tokens: [FOX_TOKENS] });
+    expect(ev).toMatchObject({ callId: null, text: 'the quick brown fox.', ids: [FOX_IDS], tokens: [FOX_TOKENS], raw: [FOX_TOKENS] });
     expect(ev.ms).toBeGreaterThanOrEqual(0);
     expect(ev.ids[0].every((id) => typeof id === 'number')).toBe(true);
     expect(isInspectorEvent(ev)).toBe(true);
@@ -89,7 +89,12 @@ describe('wrapTokenizer', () => {
         ['[CLS]', 'hi', 'world', '[SEP]'],
         ['[CLS]', 'hello', '[SEP]', '[PAD]'],
       ],
+      raw: [
+        ['[CLS]', 'hi', 'world', '[SEP]'],
+        ['[CLS]', 'hello', '[SEP]', '[PAD]'],
+      ],
     });
+    expect(isInspectorEvent(ev)).toBe(true);
     expect(structuredClone(ev)).toEqual(ev);
   });
 
@@ -172,8 +177,46 @@ describe('wrapTokenizer', () => {
   });
 });
 
-describe('WrapContext.tokenToString', () => {
-  test('prefers _tokenizer.id_to_token, falls back to decode([id]), then null; never throws', () => {
+describe('WrapContext.tokenStrings', () => {
+  test('raw is the vocab string, text is decode([id]) with specials kept and no clean-up', () => {
+    const { ctx, tok } = setup();
+    ctx.tokenizer = tok;
+    const decode = vi.spyOn(tok, 'decode');
+    expect(ctx.tokenStrings(1996)).toEqual({ raw: 'the', text: 'the' });
+    expect(ctx.tokenStrings(101)).toEqual({ raw: '[CLS]', text: '[CLS]' });
+    expect(ctx.tokenStrings(2075)).toEqual({ raw: '##ing', text: 'ing' });
+    expect(ctx.tokenStrings(2143)).toEqual({ raw: 'Ġfilm', text: ' film' });
+    expect(decode).toHaveBeenLastCalledWith([2143], { skip_special_tokens: false, clean_up_tokenization_spaces: false });
+    // memoised per id: a repeat lookup does not decode again
+    const calls = decode.mock.calls.length;
+    expect(ctx.tokenStrings(2143)).toEqual({ raw: 'Ġfilm', text: ' film' });
+    expect(decode.mock.calls.length).toBe(calls);
+  });
+
+  test('without decode text === raw; a throwing decode yields raw only; swapping the tokenizer drops the memo', () => {
+    const { ctx, tok } = setup();
+    const noDecode = { _call: tok._call, _tokenizer: tok._tokenizer } as TokenizerLike;
+    ctx.tokenizer = noDecode;
+    expect(ctx.tokenStrings(2075)).toEqual({ raw: '##ing', text: '##ing' });
+
+    const throwingDecode = {
+      _call: tok._call,
+      _tokenizer: tok._tokenizer,
+      decode: (): string => {
+        throw new Error('no decoder');
+      },
+    } as TokenizerLike;
+    ctx.tokenizer = throwingDecode;
+    expect(ctx.tokenStrings(2075)).toEqual({ raw: '##ing', text: '##ing' });
+    expect(ctx.tokenStrings(424242)).toEqual({ raw: null, text: null });
+
+    ctx.tokenizer = tok;
+    expect(ctx.tokenStrings(2075)).toEqual({ raw: '##ing', text: 'ing' });
+    ctx.tokenizer = null;
+    expect(ctx.tokenStrings(2075)).toEqual({ raw: null, text: null });
+  });
+
+  test('tokenToString prefers _tokenizer.id_to_token, falls back to decode([id]), then null; never throws', () => {
     const { ctx, tok } = setup();
     ctx.tokenizer = tok;
     expect(ctx.tokenToString(1996)).toBe('the');

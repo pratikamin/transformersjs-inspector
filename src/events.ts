@@ -23,15 +23,18 @@ export type InputPreview =
   | { kind: 'audio'; samples: number; sampleRate?: number }
   | { kind: 'other'; json: unknown }; // toCloneSafe() of the value
 
-export type TopKEntry = { id: number; token: string | null; logit: number; prob: number };
+/** `token` is the tokenizer-decoded text; `raw` (optional, v1.1) is the vocab string (`id_to_token`). */
+export type TopKEntry = { id: number; token: string | null; logit: number; prob: number; raw?: string | null };
 
 export type InspectorEvent =
   | { type: 'call:start'; callId: string; label: string; task: string | null; input: InputPreview; t: number }
-  | { type: 'tokenize'; callId: string | null; text: string | string[]; ids: number[][]; tokens: (string | null)[][]; ms: number; t: number }
+  // `tokens` are decoded per id; `raw` (optional, v1.1) holds the vocab strings in the same shape.
+  | { type: 'tokenize'; callId: string | null; text: string | string[]; ids: number[][]; tokens: (string | null)[][]; raw?: (string | null)[][]; ms: number; t: number }
   | { type: 'run:start'; callId: string | null; runId: string; session: string; inputs: TensorSummary[]; t: number }
   | { type: 'run:end'; callId: string | null; runId: string; session: string; outputs: TensorSummary[]; ms: number; error: string | null; t: number }
   | { type: 'logits'; callId: string | null; step: number; vocab: number; topK: TopKEntry[]; tensorId: string | null; t: number }
-  | { type: 'token'; callId: string | null; step: number; ids: number[]; text: string | null; t: number }
+  // `text` is decoded; `raw` (optional, v1.1) is the vocab strings of `ids` joined.
+  | { type: 'token'; callId: string | null; step: number; ids: number[]; text: string | null; raw?: string | null; t: number }
   | { type: 'result'; callId: string; result: unknown; ms: number; error: string | null; t: number };
 
 export type InspectorEventType = InspectorEvent['type'];
@@ -50,6 +53,9 @@ const isNum = (x: unknown): x is number => typeof x === 'number';
 const isStr = (x: unknown): x is string => typeof x === 'string';
 const isStrOrNull = (x: unknown): x is string | null => x === null || isStr(x);
 const isNumArray = (x: unknown): x is number[] => Array.isArray(x) && x.every(isNum);
+const isStrOrNullRows = (x: unknown): x is (string | null)[][] => Array.isArray(x) && x.every((row) => Array.isArray(row) && row.every(isStrOrNull));
+/** Optional fields are only checked when present, so v0.1 producers still validate. */
+const isAbsent = (x: unknown): x is undefined => x === undefined;
 const isTensorSummary = (x: unknown): x is TensorSummary =>
   isObj(x) &&
   isStr(x.id) &&
@@ -73,8 +79,8 @@ export function isInspectorEvent(x: unknown): x is InspectorEvent {
         (isStr(x.text) || (Array.isArray(x.text) && x.text.every(isStr))) &&
         Array.isArray(x.ids) &&
         x.ids.every(isNumArray) &&
-        Array.isArray(x.tokens) &&
-        x.tokens.every((row) => Array.isArray(row) && row.every(isStrOrNull)) &&
+        isStrOrNullRows(x.tokens) &&
+        (isAbsent(x.raw) || isStrOrNullRows(x.raw)) &&
         isNum(x.ms)
       );
     case 'run:start':
@@ -95,11 +101,11 @@ export function isInspectorEvent(x: unknown): x is InspectorEvent {
         isNum(x.step) &&
         isNum(x.vocab) &&
         Array.isArray(x.topK) &&
-        x.topK.every((e) => isObj(e) && isNum(e.id) && isStrOrNull(e.token) && isNum(e.logit) && isNum(e.prob)) &&
+        x.topK.every((e) => isObj(e) && isNum(e.id) && isStrOrNull(e.token) && isNum(e.logit) && isNum(e.prob) && (isAbsent(e.raw) || isStrOrNull(e.raw))) &&
         isStrOrNull(x.tensorId)
       );
     case 'token':
-      return isStrOrNull(x.callId) && isNum(x.step) && isNumArray(x.ids) && isStrOrNull(x.text);
+      return isStrOrNull(x.callId) && isNum(x.step) && isNumArray(x.ids) && isStrOrNull(x.text) && (isAbsent(x.raw) || isStrOrNull(x.raw));
     case 'result':
       return isStr(x.callId) && 'result' in x && isNum(x.ms) && isStrOrNull(x.error);
     default:

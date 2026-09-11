@@ -50,6 +50,9 @@ test('feature extraction: one call row with tokens, session tensors, lazy values
   expect(chipTexts).toContain('[SEP]');
   const n = chipTexts.length;
   expect(n).toBeGreaterThan(2);
+  // v1.1: the chip shows the decoded text and keeps the vocab string in its title.
+  const clsChip = sectionTitled(details, 'Tokenizer').locator('.chip').filter({ has: details.page().locator('.chip-str', { hasText: /^\[CLS\]$/ }) });
+  await expect(clsChip.first()).toHaveAttribute('title', /raw \[CLS\]/);
 
   // Session runs: one run with the three encoder inputs [1, N] and last_hidden_state [1, N, 384].
   const runs = sectionTitled(details, 'Session runs').locator('.run');
