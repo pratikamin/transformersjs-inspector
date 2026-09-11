@@ -19,8 +19,11 @@ export type TensorSummary = {
 export type InputPreview =
   | { kind: 'text'; text: string } // truncated to 2000 chars
   | { kind: 'texts'; texts: string[] }
-  | { kind: 'image'; width?: number; height?: number; channels?: number; src?: string }
-  | { kind: 'audio'; samples: number; sampleRate?: number }
+  // `thumb` (optional, v1.1): a `data:image/jpeg;base64,…` thumbnail ≤ 96 px on the long side, ≤ 32 768 chars.
+  | { kind: 'image'; width?: number; height?: number; channels?: number; src?: string; thumb?: string }
+  // `duration` (optional, v1.1): seconds, 3 dp, when `sampleRate` is known. `peaks` (optional, v1.1):
+  // `[min0, max0, min1, max1, …]` over 200 buckets, ≤ 400 numbers of 3 dp in [-1, 1] (≤ ~3 KB of JSON).
+  | { kind: 'audio'; samples: number; sampleRate?: number; duration?: number; peaks?: number[] }
   | { kind: 'other'; json: unknown }; // toCloneSafe() of the value
 
 /** `token` is the tokenizer-decoded text; `raw` (optional, v1.1) is the vocab string (`id_to_token`). */
@@ -67,12 +70,40 @@ const isTensorSummary = (x: unknown): x is TensorSummary =>
   isNum(x.bytes) &&
   (x.head === null || (Array.isArray(x.head) && x.head.every((v) => isNum(v) || isStr(v))));
 
+/**
+ * `call:start` input preview: `kind` is required; the media fields are checked only when
+ * present (`peaks` numbers, `duration` number, `thumb` string) so v0.1 producers still pass.
+ */
+export function isInputPreview(x: unknown): x is InputPreview {
+  if (!isObj(x) || !isStr(x.kind)) return false;
+  switch (x.kind) {
+    case 'text':
+      return isStr(x.text);
+    case 'texts':
+      return Array.isArray(x.texts) && x.texts.every(isStr);
+    case 'image':
+      return (
+        (isAbsent(x.width) || isNum(x.width)) &&
+        (isAbsent(x.height) || isNum(x.height)) &&
+        (isAbsent(x.channels) || isNum(x.channels)) &&
+        (isAbsent(x.src) || isStr(x.src)) &&
+        (isAbsent(x.thumb) || isStr(x.thumb))
+      );
+    case 'audio':
+      return isNum(x.samples) && (isAbsent(x.sampleRate) || isNum(x.sampleRate)) && (isAbsent(x.duration) || isNum(x.duration)) && (isAbsent(x.peaks) || isNumArray(x.peaks));
+    case 'other':
+      return 'json' in x;
+    default:
+      return false;
+  }
+}
+
 /** Structural check for a wire-received value; enough to trust `ev.type` and ids. */
 export function isInspectorEvent(x: unknown): x is InspectorEvent {
   if (!isObj(x) || !isStr(x.type) || !isNum(x.t)) return false;
   switch (x.type) {
     case 'call:start':
-      return isStr(x.callId) && isStr(x.label) && isStrOrNull(x.task) && isObj(x.input) && isStr(x.input.kind);
+      return isStr(x.callId) && isStr(x.label) && isStrOrNull(x.task) && isInputPreview(x.input);
     case 'tokenize':
       return (
         isStrOrNull(x.callId) &&

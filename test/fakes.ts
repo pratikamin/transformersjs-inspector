@@ -6,7 +6,9 @@
  *            float32 [1,2,N,16] (gpu-buffer) -> logits float32 [1,1,128256], present.0.{key,value} [1,2,N+1,16]
  */
 import type { InspectorEvent, TensorSummary, TopKEntry } from '../src/events';
+import type { CanvasLike, ImageLike } from '../src/preview';
 import type { PipelineLike, SessionLike, StreamerLike, TensorLike, TokenizerLike } from '../src/types';
+import { WAVEFORM_BUCKETS } from '../src/preview';
 
 // ---- tensors ---------------------------------------------------------------
 
@@ -372,6 +374,80 @@ export function fakePipeline(opts: { task?: FakePipelineTask } = {}): FakePipeli
   return pipe;
 }
 
+// ---- media -----------------------------------------------------------------
+
+/** What `fakeCanvas().toDataURL()` returns ("fake" in base64); never a decodable image. */
+export const FAKE_THUMB = 'data:image/jpeg;base64,ZmFrZQ==';
+
+export interface FakeCanvas extends CanvasLike {
+  /** Every `putImageData` call: the image handed over (with its `width`, `height` and RGBA `data`) and the offsets. */
+  puts: { image: { width: number; height: number; data: Uint8ClampedArray }; x: number; y: number }[];
+  /** `toDataURL(type, quality)` arguments, in order. */
+  encodes: { type: string | undefined; quality: number | undefined }[];
+}
+
+/**
+ * A `<canvas>` stand-in for the thumbnail path. `context: 'null'` behaves like happy-dom
+ * (`getContext` returns `null`); `context: 'throw'` throws from `getContext`; `dataUrl`
+ * overrides what `toDataURL` returns.
+ */
+export function fakeCanvas(opts: { dataUrl?: string; context?: 'ok' | 'null' | 'throw' } = {}): FakeCanvas {
+  const mode = opts.context ?? 'ok';
+  const canvas: FakeCanvas = {
+    width: 0,
+    height: 0,
+    puts: [],
+    encodes: [],
+    getContext(kind) {
+      if (kind !== '2d') throw new Error(`fakeCanvas: unsupported context '${kind}'`);
+      if (mode === 'throw') throw new Error('fakeCanvas: getContext refused');
+      if (mode === 'null') return null;
+      return {
+        createImageData: (w, h) => ({ width: w, height: h, data: new Uint8ClampedArray(w * h * 4) }),
+        putImageData: (image, x, y) => {
+          canvas.puts.push({ image: image as FakeCanvas['puts'][number]['image'], x, y });
+        },
+      };
+    },
+    toDataURL(type, quality) {
+      canvas.encodes.push({ type, quality });
+      return opts.dataUrl ?? FAKE_THUMB;
+    },
+  };
+  return canvas;
+}
+
+/**
+ * RawImage-shaped `{ width, height, channels, data }` with gradient bytes: channel 0 ramps
+ * 0→255 left to right, channel 1 top to bottom, channel 2 is 128, channel 3 is 255.
+ */
+export function fakeRawImage(width: number, height: number, channels: 1 | 2 | 3 | 4 = 4): ImageLike & { channels: number; data: Uint8ClampedArray } {
+  const data = new Uint8ClampedArray(width * height * channels);
+  let o = 0;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      for (let c = 0; c < channels; c++) {
+        data[o++] = c === 0 ? Math.round((x * 255) / Math.max(1, width - 1)) : c === 1 ? Math.round((y * 255) / Math.max(1, height - 1)) : c === 2 ? 128 : 255;
+      }
+    }
+  }
+  return { width, height, channels, data };
+}
+
+/** A real 24×24 gradient JPEG (361 bytes) so a rendered fixture thumbnail decodes. */
+const FIXTURE_THUMB =
+  'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAA0JCgsKCA0LCgsODg0PEyAVExISEyccHhcgLikxMC4pLSwzOko+MzZGNywtQFdBRkxOUlNSMj5aYVpQYEpRUk//2wBDAQ4ODhMREyYVFSZPNS01T09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT09PT0//wAARCAAYABgDASIAAhEBAxEB/8QAGAABAQEBAQAAAAAAAAAAAAAAAAUGAQT/xAAZEAADAQEBAAAAAAAAAAAAAAAAAwRhITH/xAAXAQEBAQEAAAAAAAAAAAAAAAAEBgIH/8QAHBEAAgICAwAAAAAAAAAAAAAAAAMCBBEhEiIx/9oADAMBAAIRAxEAPwDHIjwoIjwoIjwoIjwa20Zo3PDwIj84DQIjwAJWtlWi50OIj84UER4ACayRzCi2WiiiPzgAASZLJWIbLgf/2Q==';
+
+/** 200 symmetric min/max pairs tracing a slow envelope, 3 dp, in [-1, 1]. */
+function fixturePeaks(): number[] {
+  const peaks: number[] = [];
+  for (let i = 0; i < WAVEFORM_BUCKETS; i++) {
+    const a = Math.round((0.15 + 0.8 * Math.abs(Math.sin((i / WAVEFORM_BUCKETS) * Math.PI * 2))) * 1000) / 1000;
+    peaks.push(-a, a);
+  }
+  return peaks;
+}
+
 // ---- fixture events --------------------------------------------------------
 
 function summary(id: string, name: string, dtype: string, dims: number[], location = 'cpu', head: (number | string)[] | null = []): TensorSummary {
@@ -486,5 +562,49 @@ export function fixtureEvents(): InspectorEvent[] {
     );
   }
   events.push({ type: 'result', callId: 'c2', result: [{ generated_text: 'hi the quick brown' }], ms: 25.3, error: null, t: t + 1 });
+  return events;
+}
+
+/**
+ * One speech-recognition call (c3: 3 s of 16 kHz audio with a 200-bucket waveform, one
+ * encoder run `input_features [1,80,3000]` → `last_hidden_state [1,1500,384]`) and one
+ * image-classification call (c4: a 224×224×4 RawImage with a thumbnail, one run
+ * `pixel_values [1,3,224,224]` → `logits [1,1000]`). Kept apart from `fixtureEvents()`
+ * so its two-call assertions stand. Every entry is plain JSON.
+ */
+export function fixtureMediaEvents(): InspectorEvent[] {
+  const events: InspectorEvent[] = [
+    {
+      type: 'call:start',
+      callId: 'c3',
+      label: 'automatic-speech-recognition',
+      task: 'automatic-speech-recognition',
+      input: { kind: 'audio', samples: 48000, sampleRate: 16000, duration: 3, peaks: fixturePeaks() },
+      t: 3000,
+    },
+    { type: 'run:start', callId: 'c3', runId: 'r5', session: 'encoder_model', inputs: [summary('t20', 'input_features', 'float32', [1, 80, 3000], 'cpu', F32_HEAD)], t: 3001 },
+    {
+      type: 'run:end',
+      callId: 'c3',
+      runId: 'r5',
+      session: 'encoder_model',
+      outputs: [summary('t21', 'last_hidden_state', 'float32', [1, 1500, 384], 'cpu', F32_HEAD)],
+      ms: 41.2,
+      error: null,
+      t: 3042.2,
+    },
+    { type: 'result', callId: 'c3', result: { text: 'hello' }, ms: 55.8, error: null, t: 3055.8 },
+    {
+      type: 'call:start',
+      callId: 'c4',
+      label: 'image-classification',
+      task: 'image-classification',
+      input: { kind: 'image', width: 224, height: 224, channels: 4, thumb: FIXTURE_THUMB },
+      t: 4000,
+    },
+    { type: 'run:start', callId: 'c4', runId: 'r6', session: 'model', inputs: [summary('t22', 'pixel_values', 'float32', [1, 3, 224, 224], 'cpu', F32_HEAD)], t: 4001 },
+    { type: 'run:end', callId: 'c4', runId: 'r6', session: 'model', outputs: [summary('t23', 'logits', 'float32', [1, 1000], 'cpu', F32_HEAD)], ms: 9.8, error: null, t: 4010.8 },
+    { type: 'result', callId: 'c4', result: [{ label: 'tabby', score: 0.61 }, { label: 'tiger cat', score: 0.2 }, { label: 'Egyptian cat', score: 0.07 }], ms: 12.4, error: null, t: 4012.4 },
+  ];
   return events;
 }
