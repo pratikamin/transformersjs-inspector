@@ -87,6 +87,27 @@ describe('adoptStyles', () => {
     expect(PANEL_CSS).toMatch(/\.bar\s*\{/);
   });
 
+  test('dock insets on the host and a 16px grip on the corner opposite the anchor', () => {
+    expect(PANEL_CSS).toMatch(/:host\(\[data-dock="bottom-left"\]\)\s*\{\s*right: auto; left: 16px;/);
+    expect(PANEL_CSS).toMatch(/:host\(\[data-dock="top-right"\]\)\s*\{\s*bottom: auto; top: 16px;/);
+    expect(PANEL_CSS).toMatch(/:host\(\[data-dock="top-left"\]\)\s*\{\s*right: auto; bottom: auto; left: 16px; top: 16px;/);
+    expect(PANEL_CSS).toMatch(/\.panel\s*\{[^}]*position: relative/);
+    expect(PANEL_CSS).toMatch(/\.body\s*\{[^}]*flex: 1 1 auto;[^}]*min-height: 0/);
+    const grip = PANEL_CSS.match(/\n\.grip\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(grip).toContain('position: absolute');
+    expect(grip).toContain('width: 16px');
+    expect(grip).toContain('height: 16px');
+    expect(grip).toContain('touch-action: none');
+    expect(grip).toContain('cursor: nwse-resize');
+    expect(grip).toMatch(/top: 0;[^}]*left: 0;/);
+    expect(PANEL_CSS).toMatch(/:host\(\[data-dock="bottom-left"\]\) \.grip\s*\{[^}]*right: 0;[^}]*cursor: nesw-resize/);
+    expect(PANEL_CSS).toMatch(/:host\(\[data-dock="top-right"\]\) \.grip\s*\{[^}]*bottom: 0;[^}]*cursor: nesw-resize/);
+    expect(PANEL_CSS).toMatch(/:host\(\[data-dock="top-left"\]\) \.grip\s*\{[^}]*right: 0;[^}]*bottom: 0;/);
+    expect(PANEL_CSS).toMatch(/\.panel\.closed \.grip\s*\{\s*display: none/);
+    // A dragged CSSOM width must not survive into the collapsed badge.
+    expect(PANEL_CSS).toMatch(/\.panel\.closed\s*\{[^}]*width: auto !important;[^}]*height: auto !important/);
+  });
+
   test('dark theme: a media block that yields to data-theme="light", a data-theme="dark" block, and no stray colours', () => {
     expect(PANEL_CSS).toMatch(/:host\s*\{[^}]*color-scheme:\s*light/);
     expect(PANEL_CSS).toMatch(/@media \(prefers-color-scheme: dark\)\s*\{\s*:host\(:not\(\[data-theme="light"\]\)\)\s*\{[^}]*color-scheme: dark/);
@@ -142,6 +163,38 @@ describe('mountPanel', () => {
     expect(mount(new InspectorBus(), { theme: 'dark' }).host.dataset.theme).toBe('dark');
     expect(mount(new InspectorBus(), { theme: 'light' }).host.dataset.theme).toBe('light');
     expect(mount(new InspectorBus(), { theme: 'auto' }).host.getAttribute('data-theme')).toBe('auto');
+  });
+
+  test('data-dock is bottom-right by default and follows the dock option; the grip is the last child of the panel', () => {
+    const p = mount(new InspectorBus());
+    expect(p.host.dataset.dock).toBe('bottom-right');
+    const root = p.shadow.querySelector<HTMLElement>('[data-panel]');
+    const grip = root?.querySelector<HTMLElement>('[data-grip]');
+    expect(grip?.classList.contains('grip')).toBe(true);
+    expect(grip?.parentElement).toBe(root);
+    expect(root?.lastElementChild).toBe(grip);
+    expect(grip?.title).toContain('double-click to reset');
+    expect(grip?.closest('[data-action]')).toBeNull();
+    for (const dock of ['bottom-left', 'top-right', 'top-left'] as const) {
+      expect(mount(new InspectorBus(), { dock }).host.getAttribute('data-dock')).toBe(dock);
+    }
+  });
+
+  test('fit() reads the anchor corner named by the dock option', () => {
+    const p = mount(new InspectorBus(), { dock: 'top-left' });
+    const root = p.shadow.querySelector<HTMLElement>('[data-panel]');
+    if (!root) throw new Error('panel root missing');
+    // Top-left anchor off screen by 50px on both axes: the panel is nudged back inside.
+    root.getBoundingClientRect = () => ({ x: -50, y: -50, top: -50, left: -50, width: 560, height: 400, right: 510, bottom: 350, toJSON: () => ({}) }) as DOMRect;
+    p.open();
+    expect(root.style.translate).toBe('66px 66px');
+    // The same rect under the default dock is anchored at (510, 350), well inside: no nudge.
+    const q = mount(new InspectorBus());
+    const qroot = q.shadow.querySelector<HTMLElement>('[data-panel]');
+    if (!qroot) throw new Error('panel root missing');
+    qroot.getBoundingClientRect = root.getBoundingClientRect;
+    q.open();
+    expect(qroot.style.translate).toBe('');
   });
 
   test('while closed, fixture events create no rows and the badge reads the call count', () => {

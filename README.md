@@ -104,12 +104,18 @@ call) are shown as `direct · <session>` rows with only the session run.
 
 ### Where the panel sits
 
-The panel is fixed to the bottom-right corner of whatever it is mounted in (`document.body` by
-default, or `PanelOptions.container`). It measures itself and stays inside the visible viewport:
-if the host parks it above a dock or inside a transformed element, it shrinks to the space above
-and left of that anchor rather than running off the top or side of the screen, and on mobile it
-uses the visual viewport so the header stays reachable to collapse it again. Only when the anchor
-itself is off screen is the panel nudged back inside.
+The panel is fixed to a corner of whatever it is mounted in (`document.body` by default, or
+`PanelOptions.container`): the bottom-right one unless `PanelOptions.dock` names another
+(`'bottom-left'`, `'top-right'`, `'top-left'`; the demo takes `?dock=top-left`). It measures
+itself and stays inside the visible viewport: if the host parks it above a dock or inside a
+transformed element, it shrinks to the space on the far side of that anchor rather than running
+off the screen, and on mobile it uses the visual viewport so the header stays reachable to
+collapse it again. Only when the anchor itself is off screen is the panel nudged back inside.
+
+Drag the 16px grip on the corner opposite the anchor (top-left of a bottom-right panel) to
+resize it; the size is clamped to the viewport and to a 280x160 minimum, and a double-click on
+the grip restores the default width and content height. The size lives for the panel's lifetime
+only: nothing is persisted, and a new `mountPanel` starts at the default again.
 
 ## Zero-touch preload
 
@@ -221,6 +227,7 @@ show the full wiring.
 | `title` | `string` | `Transformers.js inspector` | Header text. |
 | `maxCalls` | `number` | `200` | Rows kept; the oldest are dropped beyond this. |
 | `theme` | `'auto' \| 'light' \| 'dark'` | `'auto'` | `auto` follows `prefers-color-scheme`; the others force a theme. Written to `data-theme` on the host `<div>`. |
+| `dock` | `'bottom-right' \| 'bottom-left' \| 'top-right' \| 'top-left'` | `'bottom-right'` | The viewport corner the panel is fixed to; it grows away from it and the resize grip sits on the opposite corner. Written to `data-dock` on the host `<div>`. |
 
 The `AttachHandle` returned by `attach()` carries `bus`, `store` and `detach()`.
 

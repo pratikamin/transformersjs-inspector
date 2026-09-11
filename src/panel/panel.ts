@@ -13,8 +13,10 @@ import { h } from './dom';
 import type { CallView, PanelState } from './model';
 import { createState, reduce } from './model';
 import { renderRowDetails, renderRowSummary, renderTensorValues, valuesCellFor } from './render';
-import { fitElement, watchViewport } from './fit';
+import { DEFAULT_DOCK, fitElement, watchViewport } from './fit';
+import type { Dock } from './fit';
 import type { RenderContext } from './render';
+import { installResize } from './resize';
 import { adoptStyles } from './styles';
 
 export interface PanelOptions {
@@ -30,6 +32,12 @@ export interface PanelOptions {
    * regardless of it. Written to `data-theme` on the host element.
    */
   theme?: 'auto' | 'light' | 'dark';
+  /**
+   * Which viewport corner the panel is fixed to; `'bottom-right'` by default. The panel grows
+   * away from that corner and the resize grip sits on the opposite one. Written to
+   * `data-dock` on the host element.
+   */
+  dock?: Dock;
 }
 
 export interface InspectorPanel {
@@ -51,6 +59,8 @@ type RowRefs = { row: HTMLElement; summary: HTMLElement; details: HTMLElement | 
 export function mountPanel(bus: InspectorBus, opts: PanelOptions = {}): InspectorPanel {
   const host = h('div', { data: { tjsiPanel: '' } });
   host.dataset.theme = opts.theme ?? 'auto';
+  const dock: Dock = opts.dock ?? DEFAULT_DOCK;
+  host.dataset.dock = dock;
   const shadow = host.attachShadow({ mode: 'open' });
   adoptStyles(shadow);
 
@@ -58,6 +68,8 @@ export function mountPanel(bus: InspectorBus, opts: PanelOptions = {}): Inspecto
   const chevron = h('span', { class: 'chev' }, '▸');
   const rows = h('ol', { class: 'rows', data: { rows: '' } });
   const empty = h('div', { class: 'empty' }, 'No calls yet');
+  // Drag handle on the corner opposite the anchor (placed by the stylesheet per `data-dock`).
+  const grip = h('div', { class: 'grip', data: { grip: '' }, title: 'drag to resize · double-click to reset' });
   const root = h(
     'div',
     { class: 'panel closed', data: { panel: '' } },
@@ -71,6 +83,7 @@ export function mountPanel(bus: InspectorBus, opts: PanelOptions = {}): Inspecto
       h('button', { class: 'btn', data: { action: 'clear' } }, 'Clear'),
     ),
     h('div', { class: 'body' }, empty, rows),
+    grip,
   );
   shadow.appendChild(root);
   (opts.container ?? document.body).appendChild(host);
@@ -88,9 +101,10 @@ export function mountPanel(bus: InspectorBus, opts: PanelOptions = {}): Inspecto
    */
   const fit = (): void => {
     if (destroyed) return;
-    fitElement(root);
+    fitElement(root, undefined, dock);
   };
   const unwatchViewport = watchViewport(fit);
+  const uninstallResize = installResize(root, grip, { dock: () => dock, onResize: fit });
 
   const updateBadge = (): void => {
     badge.textContent = String(state.calls.length);
@@ -237,6 +251,7 @@ export function mountPanel(bus: InspectorBus, opts: PanelOptions = {}): Inspecto
       destroyed = true;
       unsubscribe();
       unwatchViewport();
+      uninstallResize();
       shadow.removeEventListener('click', onClick);
       rendered.clear();
       host.remove();

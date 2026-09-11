@@ -7,6 +7,11 @@
  *
  * Every colour is a `--tjsi-*` custom property declared on `:host` (light values); the two
  * blocks at the end of the sheet swap in `DARK_VARS`.
+ *
+ * `data-dock` on the host picks the fixed corner (`:host([data-dock=…])` overrides the
+ * bottom-right inset) and places the resize grip on the opposite corner. A dragged size is
+ * written as `width`/`height` on `.panel`; the `.closed` rule wins over it with `!important`
+ * so the collapsed badge never inherits a dragged width.
  */
 
 /**
@@ -47,8 +52,12 @@ export const PANEL_CSS = `
   color: var(--tjsi-fg);
   color-scheme: light;
 }
+:host([data-dock="bottom-left"]) { right: auto; left: 16px; }
+:host([data-dock="top-right"]) { bottom: auto; top: 16px; }
+:host([data-dock="top-left"]) { right: auto; bottom: auto; left: 16px; top: 16px; }
 *, *::before, *::after { box-sizing: border-box; }
 .panel {
+  position: relative;
   display: flex;
   flex-direction: column;
   width: 560px;
@@ -60,8 +69,33 @@ export const PANEL_CSS = `
   box-shadow: 0 8px 24px var(--tjsi-shadow);
   overflow: hidden;
 }
-.panel.closed { width: auto; }
+.panel.closed { width: auto !important; height: auto !important; }
 .panel.closed .body { display: none; }
+.panel.closed .grip { display: none; }
+
+/* Resize grip: a 16px touch-friendly square on the corner opposite the anchor, above the header. */
+.grip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 16px;
+  height: 16px;
+  z-index: 1;
+  touch-action: none;
+  user-select: none;
+  cursor: nwse-resize;
+}
+.grip::before {
+  content: '';
+  position: absolute;
+  inset: 5px;
+  border: 2px solid var(--tjsi-border);
+  border-radius: 2px;
+}
+.grip:hover::before { border-color: var(--tjsi-accent); }
+:host([data-dock="bottom-left"]) .grip { left: auto; right: 0; cursor: nesw-resize; }
+:host([data-dock="top-right"]) .grip { top: auto; bottom: 0; cursor: nesw-resize; }
+:host([data-dock="top-left"]) .grip { top: auto; left: auto; right: 0; bottom: 0; }
 
 .header {
   display: flex;
@@ -98,7 +132,7 @@ export const PANEL_CSS = `
 .btn:disabled { opacity: 0.55; cursor: progress; }
 .chev { width: 1em; text-align: center; color: var(--tjsi-muted); }
 
-.body { overflow: auto; }
+.body { flex: 1 1 auto; min-height: 0; overflow: auto; }
 .rows { list-style: none; margin: 0; padding: 0; }
 .empty { padding: 16px; color: var(--tjsi-muted); text-align: center; }
 .row { border-bottom: 1px solid var(--tjsi-border-soft); }
