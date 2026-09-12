@@ -157,6 +157,43 @@ resize it; the size is clamped to the viewport and to a 280x160 minimum, and a d
 the grip restores the default width and content height. The size lives for the panel's lifetime
 only: nothing is persisted, and a new `mountPanel` starts at the default again.
 
+### Export
+
+**Export** in the panel header downloads the bus history as a JSON file named
+`transformersjs-inspector-YYYYMMDD-HHMMSS.json` (a Blob URL on a temporary `<a download>`; no
+data URL, so a 500-event history with thumbnails does not go through an attribute string). Where
+a download is impossible (no `URL.createObjectURL`, or the browser refuses the anchor click), or
+when you Shift-click the button, the same JSON is copied to the clipboard instead. The header
+shows `exported`, `copied` or `failed` for two seconds. The source is the **bus** history, not the
+panel's rows: **Clear** empties the list but not the bus, `maxCalls` caps rows only, and a bus
+created with a larger `maxHistory` (500 by default) exports more events.
+
+The same snapshot is available without the panel:
+
+```ts
+import { exportEvents, exportFilename, serializeExport } from 'transformersjs-inspector';
+
+const snapshot = exportEvents(handle.bus); // { version, exportedAt, events }
+const onlyThisCall = exportEvents(handle.bus, { filter: (ev) => ev.callId === 'c1' });
+const lastHundred = exportEvents(handle.bus, { limit: 100 });
+const text = serializeExport(snapshot); // JSON, two-space indented
+const name = exportFilename(); // transformersjs-inspector-20260911-090507.json
+```
+
+The file shape (`InspectorExport`):
+
+```jsonc
+{
+  "version": "0.1.1",                  // library version that wrote it
+  "exportedAt": "2026-09-11T09:05:07.123Z",
+  "events": [ /* InspectorEvent[], exactly as emitted, oldest first */ ]
+}
+```
+
+Events are the summaries already on the bus: tensor shapes, heads, token ids and text, top-k
+tables, previews. Tensor bytes are never included (load them with `bus.request('tensor')`
+while the tab is open).
+
 ## Zero-touch preload
 
 `attach(pipe)` is the headline API and always works. The secondary entry, `preload`, needs no
@@ -312,8 +349,9 @@ By design (`docs/00-brief.md`):
   onnxruntime-web directly. The tokenizer and pipeline hooks use underscore-private methods
   (`tokenizer._call`, `pipe._call`) that are stable in practice but not documented API.
 - **Read-only.** No editing or replaying of inputs.
-- **Nothing persisted or uploaded.** No `localStorage`, no downloads, no network requests;
-  everything lives in the tab and is gone on reload.
+- **Nothing stored or sent by the library.** No `localStorage`, no network requests;
+  everything lives in the tab and is gone on reload. **Export** is the one way out: a
+  user-initiated download (or clipboard copy) of the event history, never automatic.
 
 Known limitations of this version (`docs/02-plan.md`, "Out of scope"):
 
@@ -331,6 +369,8 @@ Known limitations of this version (`docs/02-plan.md`, "Out of scope"):
   (`encoder_model` + `decoder_model_merged`) but are not in the demo.
 - Expanding a row re-renders it when the call updates, which drops values already loaded
   into it; click **Load values** again.
+- **Export carries summaries only.** No tensor bytes in the file (`docs/03-plan-v1.1.md`,
+  "Still out"), and no importing of a file back into the panel yet.
 
 ## Overhead
 

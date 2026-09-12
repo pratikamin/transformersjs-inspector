@@ -1,12 +1,15 @@
 // @vitest-environment happy-dom
-import { afterEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { InspectorBus } from '../src/bus';
 import type { InspectorEvent, TensorData } from '../src/events';
 import { fmtBytes, fmtDims, fmtMs, fmtNum, h, svg } from '../src/panel/dom';
 import type { InspectorPanel } from '../src/panel/panel';
-import { mountPanel } from '../src/panel/panel';
+import { STATUS_FLASH_MS, mountPanel } from '../src/panel/panel';
+import { REVOKE_DELAY_MS, copyText, downloadJson } from '../src/panel/download';
 import { MAX_VALUES, renderTensorImage, renderTensorValues, renderWaveform } from '../src/panel/render';
 import { adoptStyles, PANEL_CSS } from '../src/panel/styles';
+import { exportEvents } from '../src/export';
+import type { InspectorExport } from '../src/export';
 import { FAKE_THUMB, fixtureEvents, fixtureMediaEvents } from './fakes';
 
 const panels: InspectorPanel[] = [];
@@ -812,5 +815,207 @@ describe('media previews (story 6)', () => {
     expect(valuesUnder(row)?.querySelector('.values-list')).not.toBeNull();
     expect(valuesUnder(row)?.querySelector('[data-canvas-unavailable]')).toBeNull();
     expect(p.shadow.querySelectorAll('tr.values')).toHaveLength(1);
+  });
+});
+
+/**
+ * Story 8: Export. Under happy-dom on Node 22 `URL.createObjectURL` is Node's own (inherited
+ * static, `blob:nodedata:` URLs nothing here can read back), so the download path shadows it
+ * with an own-property stub that captures the Blob plus a spy on
+ * `HTMLAnchorElement.prototype.click`, and the fallback tests shadow it with `undefined`;
+ * `delete` restores the inherited original. The clipboard path uses a stubbed `navigator.clipboard`.
+ */
+describe('export (story 8)', () => {
+  const FILENAME = /^transformersjs-inspector-\d{8}-\d{6}\.json$/;
+  type UrlStatics = { createObjectURL?: (b: Blob) => string; revokeObjectURL?: (u: string) => void };
+  const urlStatics = URL as unknown as UrlStatics;
+  let blobs: Blob[];
+  let revoked: string[];
+  let anchors: HTMLAnchorElement[];
+  let clipboardTexts: string[];
+
+  const stubObjectUrl = (): void => {
+    urlStatics.createObjectURL = (b: Blob) => {
+      blobs.push(b);
+      return `blob:stub/${blobs.length}`;
+    };
+    urlStatics.revokeObjectURL = (u: string) => {
+      revoked.push(u);
+    };
+  };
+  /** Makes object URLs unavailable, as in a runtime without them. */
+  const removeObjectUrl = (): void => {
+    urlStatics.createObjectURL = undefined;
+    urlStatics.revokeObjectURL = undefined;
+  };
+  const unstubObjectUrl = (): void => {
+    delete urlStatics.createObjectURL;
+    delete urlStatics.revokeObjectURL;
+  };
+  const stubClipboard = (impl: (t: string) => Promise<void>): void => {
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: impl } });
+  };
+  const unstubClipboard = (): void => {
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined });
+  };
+  const statusOf = (p: InspectorPanel): HTMLElement => {
+    const el = p.shadow.querySelector<HTMLElement>('[data-export-status]');
+    if (!el) throw new Error('no status element');
+    return el;
+  };
+  const exportButton = (p: InspectorPanel): HTMLElement => {
+    const el = p.shadow.querySelector<HTMLElement>('[data-action="export"]');
+    if (!el) throw new Error('no export button');
+    return el;
+  };
+  const filledPanel = (): { bus: InspectorBus; p: InspectorPanel } => {
+    const bus = new InspectorBus();
+    for (const ev of fixtureEvents()) bus.emit(ev);
+    return { bus, p: mount(bus, { open: true }) };
+  };
+  /** Waits for the async export handler (clipboard path) to settle. */
+  const settle = async (): Promise<void> => {
+    await tick();
+    await tick();
+  };
+
+  beforeEach(() => {
+    blobs = [];
+    revoked = [];
+    anchors = [];
+    clipboardTexts = [];
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+      anchors.push(this);
+    });
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+    unstubObjectUrl();
+    unstubClipboard();
+  });
+
+  test('the header has an Export button before Clear and an empty, hidden status span', () => {
+    const { p } = filledPanel();
+    const buttons = [...p.shadow.querySelectorAll<HTMLButtonElement>('header .btn')].map((b) => b.dataset.action);
+    expect(buttons).toEqual(['export', 'clear']);
+    expect(exportButton(p).title).toMatch(/shift-click to copy/i);
+    expect(statusOf(p).textContent).toBe('');
+    expect(statusOf(p).dataset.exportStatus).toBe('');
+    expect(PANEL_CSS).toContain('.status:empty { display: none; }');
+  });
+
+  test('click: downloads a Blob whose JSON events equal bus.history, names it by the pattern, flashes "exported" and does not toggle the panel', async () => {
+    vi.useFakeTimers();
+    stubObjectUrl();
+    const { bus, p } = filledPanel();
+    click(exportButton(p));
+    expect(p.isOpen()).toBe(true);
+    expect(anchors).toHaveLength(1);
+    expect(anchors[0].download).toMatch(FILENAME);
+    expect(anchors[0].href).toBe('blob:stub/1');
+    expect(anchors[0].isConnected).toBe(false);
+    expect(blobs).toHaveLength(1);
+    expect(blobs[0].type).toBe('application/json');
+    const parsed = JSON.parse(await blobs[0].text()) as InspectorExport;
+    expect(parsed.events).toEqual([...bus.history]);
+    expect(parsed.events).toHaveLength(fixtureEvents().length);
+    expect(parsed.version).toBe(exportEvents(bus).version);
+    expect(Number.isNaN(Date.parse(parsed.exportedAt))).toBe(false);
+    expect(statusOf(p).textContent).toBe('exported');
+    expect(statusOf(p).dataset.exportStatus).toBe('exported');
+    // The object URL is revoked after a delay, the status a little later.
+    expect(revoked).toEqual([]);
+    vi.advanceTimersByTime(REVOKE_DELAY_MS);
+    expect(revoked).toEqual(['blob:stub/1']);
+    vi.advanceTimersByTime(STATUS_FLASH_MS - REVOKE_DELAY_MS - 1);
+    expect(statusOf(p).textContent).toBe('exported');
+    vi.advanceTimersByTime(1);
+    expect(statusOf(p).textContent).toBe('');
+    expect(statusOf(p).dataset.exportStatus).toBe('');
+  });
+
+  test('fallback: without URL.createObjectURL the JSON is copied to the clipboard and "copied" flashes', async () => {
+    removeObjectUrl();
+    stubClipboard(async (t) => {
+      clipboardTexts.push(t);
+    });
+    const { bus, p } = filledPanel();
+    click(exportButton(p));
+    await settle();
+    expect(anchors).toHaveLength(0);
+    expect(clipboardTexts).toHaveLength(1);
+    const parsed = JSON.parse(clipboardTexts[0]) as InspectorExport;
+    expect(parsed.events).toEqual([...bus.history]);
+    expect(clipboardTexts[0].startsWith('{\n  "version": ')).toBe(true);
+    expect(statusOf(p).textContent).toBe('copied');
+  });
+
+  test('shift-click copies even when a download is possible', async () => {
+    stubObjectUrl();
+    stubClipboard(async (t) => {
+      clipboardTexts.push(t);
+    });
+    const { p } = filledPanel();
+    exportButton(p).dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true, shiftKey: true }));
+    await settle();
+    expect(anchors).toHaveLength(0);
+    expect(blobs).toHaveLength(0);
+    expect(clipboardTexts).toHaveLength(1);
+    expect(statusOf(p).textContent).toBe('copied');
+  });
+
+  test('with neither object URLs nor a clipboard the status is "failed"; a rejected clipboard write also fails', async () => {
+    removeObjectUrl();
+    const { p } = filledPanel();
+    click(exportButton(p));
+    await settle();
+    expect(statusOf(p).textContent).toBe('failed');
+    stubClipboard(() => Promise.reject(new Error('denied')));
+    click(exportButton(p));
+    await settle();
+    expect(statusOf(p).textContent).toBe('failed');
+  });
+
+  test('the bus history, not the panel rows, is exported: Clear leaves the export intact and maxCalls does not cap it', async () => {
+    stubObjectUrl();
+    const bus = new InspectorBus();
+    for (const ev of fixtureEvents()) bus.emit(ev);
+    const p = mount(bus, { open: true, maxCalls: 1 });
+    expect(rowsOf(p)).toHaveLength(1);
+    click(p.shadow.querySelector('[data-action="clear"]'));
+    expect(rowsOf(p)).toHaveLength(0);
+    click(exportButton(p));
+    const parsed = JSON.parse(await blobs[0].text()) as InspectorExport;
+    expect(parsed.events).toEqual([...bus.history]);
+    expect(parsed.events.filter((e) => e.type === 'call:start')).toHaveLength(2);
+  });
+
+  test('destroy() clears a pending status timer', () => {
+    vi.useFakeTimers();
+    stubObjectUrl();
+    const { p } = filledPanel();
+    click(exportButton(p));
+    const before = vi.getTimerCount();
+    p.destroy();
+    expect(vi.getTimerCount()).toBe(before - 1); // the revoke timer stays; the flash timer is gone
+    vi.runAllTimers();
+    expect(revoked).toEqual(['blob:stub/1']);
+  });
+
+  test('downloadJson: false without object URLs; false and revoked when the anchor click throws; copyText guards', async () => {
+    removeObjectUrl();
+    expect(downloadJson('{}', 'x.json', document)).toBe(false);
+    stubObjectUrl();
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {
+      throw new Error('blocked');
+    });
+    expect(downloadJson('{}', 'x.json', document)).toBe(false);
+    expect(blobs).toHaveLength(1);
+    expect(revoked).toEqual(['blob:stub/1']);
+    expect(await copyText('t', undefined)).toBe(false);
+    expect(await copyText('t', {} as Navigator)).toBe(false);
+    expect(await copyText('t', { clipboard: { writeText: () => Promise.reject(new Error('no')) } } as unknown as Navigator)).toBe(false);
+    expect(await copyText('t', { clipboard: { writeText: async () => undefined } } as unknown as Navigator)).toBe(true);
   });
 });

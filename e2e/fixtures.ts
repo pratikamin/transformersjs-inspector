@@ -19,6 +19,9 @@ export const test = base.extend({
       baseURL,
       viewport,
       deviceScaleFactor,
+      // Playwright's default, stated: the Export button's Blob download must be accepted so
+      // `page.waitForEvent('download')` yields a saved file (e2e/export.spec.ts).
+      acceptDownloads: true,
     });
     await use(context);
     await context.close();

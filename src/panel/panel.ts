@@ -10,7 +10,9 @@
  */
 import type { InspectorBus } from '../bus';
 import type { InspectorEvent, TensorData } from '../events';
+import { exportEvents, exportFilename, serializeExport } from '../export';
 import { h } from './dom';
+import { copyText, downloadJson } from './download';
 import type { CallView, PanelState } from './model';
 import { createState, reduce } from './model';
 import { renderRowDetails, renderRowSummary, renderTensorImage, renderTensorValues, valuesCellFor } from './render';
@@ -54,6 +56,10 @@ export interface InspectorPanel {
 }
 
 const DEFAULT_TITLE = 'Transformers.js inspector';
+/** How long the header's export status text ("exported" / "copied" / "failed") stays visible. */
+export const STATUS_FLASH_MS = 2000;
+
+export type ExportStatus = 'exported' | 'copied' | 'failed';
 
 type RowRefs = { row: HTMLElement; summary: HTMLElement; details: HTMLElement | null };
 
@@ -71,6 +77,8 @@ export function mountPanel(bus: InspectorBus, opts: PanelOptions = {}): Inspecto
   const empty = h('div', { class: 'empty' }, 'No calls yet');
   // Drag handle on the corner opposite the anchor (placed by the stylesheet per `data-dock`).
   const grip = h('div', { class: 'grip', data: { grip: '' }, title: 'drag to resize · double-click to reset' });
+  // Short-lived status text next to the header buttons (see `flash`).
+  const status = h('span', { class: 'status', data: { exportStatus: '' } });
   const root = h(
     'div',
     { class: 'panel closed', data: { panel: '' } },
@@ -81,6 +89,8 @@ export function mountPanel(bus: InspectorBus, opts: PanelOptions = {}): Inspecto
       h('span', { class: 'title' }, opts.title ?? DEFAULT_TITLE),
       badge,
       h('span', { class: 'spacer' }),
+      status,
+      h('button', { class: 'btn', data: { action: 'export' }, title: 'download the event history as JSON · shift-click to copy it instead' }, 'Export'),
       h('button', { class: 'btn', data: { action: 'clear' } }, 'Clear'),
     ),
     h('div', { class: 'body' }, empty, rows),
@@ -193,6 +203,36 @@ export function mountPanel(bus: InspectorBus, opts: PanelOptions = {}): Inspecto
     }
   };
 
+  let statusTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Shows `text` in the header for `STATUS_FLASH_MS`; a new flash restarts the clock. */
+  const flash = (text: ExportStatus): void => {
+    status.textContent = text;
+    status.dataset.exportStatus = text;
+    if (statusTimer !== null) clearTimeout(statusTimer);
+    statusTimer = setTimeout(() => {
+      statusTimer = null;
+      status.textContent = '';
+      status.dataset.exportStatus = '';
+    }, STATUS_FLASH_MS);
+  };
+
+  /**
+   * Export: the bus history (not the reducer's rows, which are capped by `maxCalls` and
+   * emptied by Clear) serialised and offered as a file download. The clipboard is used
+   * instead when the click carried Shift or when a download is impossible here (no
+   * `URL.createObjectURL`, or the anchor path threw).
+   */
+  const doExport = async (copyInstead: boolean): Promise<void> => {
+    const doc = host.ownerDocument;
+    const text = serializeExport(exportEvents(bus));
+    if (!copyInstead && downloadJson(text, exportFilename(), doc)) {
+      flash('exported');
+      return;
+    }
+    const ok = await copyText(text, doc.defaultView?.navigator ?? globalThis.navigator);
+    flash(ok ? 'copied' : 'failed');
+  };
+
   const onClick = (e: Event): void => {
     const target = e.target;
     if (!(target instanceof Element)) return;
@@ -210,6 +250,9 @@ export function mountPanel(bus: InspectorBus, opts: PanelOptions = {}): Inspecto
       }
       case 'clear':
         panel.clear();
+        break;
+      case 'export':
+        void doExport(e instanceof MouseEvent && e.shiftKey);
         break;
       case 'load':
       case 'preview': {
@@ -259,6 +302,8 @@ export function mountPanel(bus: InspectorBus, opts: PanelOptions = {}): Inspecto
       unsubscribe();
       unwatchViewport();
       uninstallResize();
+      if (statusTimer !== null) clearTimeout(statusTimer);
+      statusTimer = null;
       shadow.removeEventListener('click', onClick);
       rendered.clear();
       host.remove();

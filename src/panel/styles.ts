@@ -119,6 +119,8 @@ export const PANEL_CSS = `
   font-weight: 600;
 }
 .spacer { flex: 1; }
+.status { color: var(--tjsi-muted); white-space: nowrap; }
+.status:empty { display: none; }
 .btn {
   font: inherit;
   padding: 2px 8px;

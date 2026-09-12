@@ -1,4 +1,4 @@
-export const VERSION = '0.1.1';
+export { VERSION } from './version';
 export { attach } from './attach';
 export type { AttachOptions, AttachHandle } from './attach';
 export type { InspectorOptions } from './context';
@@ -10,6 +10,8 @@ export { messagePortTransport, connectWorker, exposeToPage } from './worker';
 export type { PortLike } from './worker';
 export { TensorStore } from './store';
 export { mountPanel } from './panel/panel';
+export { exportEvents, exportFilename, serializeExport } from './export';
+export type { InspectorExport, ExportOptions } from './export';
 export type { PanelOptions, InspectorPanel } from './panel/panel';
 export type * from './events';
 export type { PipelineLike, SessionLike, TokenizerLike, TensorLike } from './types';
