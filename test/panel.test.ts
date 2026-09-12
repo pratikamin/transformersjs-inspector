@@ -1019,3 +1019,121 @@ describe('export (story 8)', () => {
     expect(await copyText('t', { clipboard: { writeText: async () => undefined } } as unknown as Navigator)).toBe(true);
   });
 });
+
+describe('replay (story 9)', () => {
+  const startEv = (callId: string, replayOf?: string): InspectorEvent => ({
+    type: 'call:start',
+    callId,
+    label: 'feature-extraction · bert',
+    task: 'feature-extraction',
+    input: { kind: 'text', text: 'again' },
+    ...(replayOf ? { replayOf } : {}),
+    t: 5000,
+  });
+  const replayButton = (p: InspectorPanel, id: string): HTMLButtonElement => {
+    const el = p.shadow.querySelector<HTMLButtonElement>(`[data-call="${id}"] button[data-action="replay"]`);
+    if (!el) throw new Error(`no replay button on ${id}`);
+    return el;
+  };
+
+  test('every real row has a Replay button carrying its call id, a synthetic row has none, and the stylesheet colours errors through a token', () => {
+    const bus = new InspectorBus();
+    const p = mount(bus, { open: true });
+    for (const ev of fixtureEvents()) bus.emit(ev);
+    bus.emit({ type: 'run:start', callId: null, runId: 'r99', session: 'model', inputs: [], t: 9000 });
+    const rows = rowsOf(p);
+    expect(rows).toHaveLength(3);
+    expect(replayButton(p, 'c1').dataset.callId).toBe('c1');
+    expect(replayButton(p, 'c2').dataset.callId).toBe('c2');
+    expect(replayButton(p, 'c1').textContent).toBe('Replay');
+    expect(rows[2].querySelector('button[data-action="replay"]')).toBeNull();
+    expect(rows[2].querySelector('.replay-slot')).not.toBeNull();
+    // No marker on ordinary rows, but the cell is there so the grid keeps its columns.
+    expect(p.shadow.querySelectorAll('[data-replay-of]')).toHaveLength(0);
+    expect(rows[0].querySelector('.replay-of')?.textContent).toBe('');
+    expect(PANEL_CSS).toContain('.btn.replay[data-replay-error] { color: var(--tjsi-err)');
+    expect(PANEL_CSS).toContain('.replay-of { color: var(--tjsi-muted)');
+  });
+
+  test('click: requests replay for that id, disables the button until the answer, and does not expand the row', async () => {
+    const bus = new InspectorBus();
+    let answer!: (r: { ok: true; callId: string }) => void;
+    bus.handle('replay', () => new Promise((r) => (answer = r)));
+    const request = vi.spyOn(bus, 'request');
+    const p = mount(bus, { open: true });
+    for (const ev of fixtureEvents()) bus.emit(ev);
+    const button = replayButton(p, 'c1');
+    click(button);
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(request).toHaveBeenCalledWith('replay', { callId: 'c1' });
+    expect(button.disabled).toBe(true);
+    expect(p.shadow.querySelector('[data-details]')).toBeNull();
+    expect(rowsOf(p)[0].closest('.row')?.classList.contains('expanded')).toBe(false);
+    // A second click while in flight is ignored (the button is disabled).
+    click(button);
+    expect(request).toHaveBeenCalledTimes(1);
+
+    answer({ ok: true, callId: 'c3' });
+    await tick();
+    expect(button.disabled).toBe(false);
+    expect(button.dataset.replayError).toBeUndefined();
+    expect(button.textContent).toBe('Replay');
+    // The new row arrives as events, marked as a replay of #1 (resolved through the reducer).
+    bus.emit(startEv('c3', 'c1'));
+    const rows = rowsOf(p);
+    expect(rows).toHaveLength(3);
+    const marker = rows[2].querySelector<HTMLElement>('.replay-of');
+    expect(marker?.dataset.replayOf).toBe('c1');
+    expect(marker?.textContent).toBe('replay of #1');
+    expect(marker?.title).toBe('replay of c1');
+    expect(badgeOf(p)).toBe('3');
+    // A replayed row is replayable in turn.
+    expect(replayButton(p, 'c3').dataset.callId).toBe('c3');
+  });
+
+  test('an { ok: false } answer and a rejected request both land on the button; the next click clears it', async () => {
+    const bus = new InspectorBus();
+    bus.handle('replay', ({ callId }) => ({ ok: false, error: `unknown call ${callId}` }));
+    const p = mount(bus, { open: true });
+    for (const ev of fixtureEvents()) bus.emit(ev);
+    const button = replayButton(p, 'c2');
+    click(button);
+    await tick();
+    expect(button.disabled).toBe(false);
+    expect(button.dataset.replayError).toBe('unknown call c2');
+    expect(button.title).toBe('unknown call c2');
+    expect(button.textContent).toBe('Replay failed');
+
+    bus.handle('replay', () => {
+      throw new Error('worker gone');
+    });
+    click(button);
+    expect(button.dataset.replayError).toBeUndefined();
+    expect(button.textContent).toBe('Replay');
+    await tick();
+    expect(button.dataset.replayError).toBe('worker gone');
+
+    // No handler at all (no attach() on this bus): the bus error is shown.
+    const lonely = new InspectorBus();
+    const q = mount(lonely, { open: true });
+    for (const ev of fixtureEvents()) lonely.emit(ev);
+    click(replayButton(q, 'c1'));
+    await tick();
+    expect(replayButton(q, 'c1').dataset.replayError).toBe("no handler for request 'replay'");
+  });
+
+  test('the marker falls back to the id when the original row is gone, and survives a summary patch', () => {
+    const bus = new InspectorBus();
+    const p = mount(bus, { open: true, maxCalls: 2 });
+    bus.emit(startEv('c1'));
+    bus.emit(startEv('c2', 'c1'));
+    expect(p.shadow.querySelector<HTMLElement>('[data-call="c2"] .replay-of')?.textContent).toBe('replay of #1');
+    bus.emit(startEv('c3', 'c1')); // evicts c1
+    expect(rowsOf(p).map((r) => r.dataset.call)).toEqual(['c2', 'c3']);
+    expect(p.shadow.querySelector<HTMLElement>('[data-call="c3"] .replay-of')?.textContent).toBe('replay of c1');
+    bus.emit({ type: 'result', callId: 'c2', result: null, ms: 1, error: null, t: 5001 });
+    const patched = p.shadow.querySelector<HTMLElement>('[data-call="c2"] .replay-of');
+    expect(patched?.textContent).toBe('replay of c1');
+    expect(patched?.dataset.replayOf).toBe('c1');
+  });
+});

@@ -4,7 +4,8 @@
  * `pipe.model.generate` (when a function) and finally `pipe._call`, all sharing one
  * `WrapContext` so the events of one pipeline call carry one `callId`. `detach()` restores
  * them in reverse order and is idempotent. Without an explicit bus/store the process-wide
- * defaults are used, and the panel is mounted once per bus wherever a DOM exists.
+ * defaults are used, and the panel is mounted once per bus wherever a DOM exists. The
+ * replay registry (`src/replay.ts`) is likewise one per bus, registered on first use.
  */
 import type { InspectorOptions } from './context';
 import type { PanelOptions } from './panel/panel';
@@ -14,6 +15,7 @@ import type { GenerateLike, PipelineLike } from './types';
 import { InspectorError } from './bus';
 import { WrapContext } from './context';
 import { ensurePanel, getDefaultBus, getDefaultStore } from './default';
+import { registryFor } from './replay';
 import { wrapGenerate } from './wrap/generation';
 import { wrapPipelineCall } from './wrap/pipeline';
 import { wrapSessions } from './wrap/session';
@@ -29,6 +31,13 @@ export interface AttachOptions extends Partial<InspectorOptions> {
    * no-op where there is no DOM, e.g. inside a worker).
    */
   panel?: boolean | PanelOptions;
+  /**
+   * Calls kept for **Replay** (`bus.request('replay', { callId })`), oldest evicted first;
+   * default 200. The registry is per bus and sized by the first `attach()` on it; `0`
+   * disables recording for that bus. Arguments are kept by reference until eviction or
+   * `detach()`.
+   */
+  replayHistory?: number;
 }
 
 export interface AttachHandle {
@@ -84,6 +93,7 @@ export function attach(pipe: unknown, opts: AttachOptions = {}): AttachHandle {
   registerStore(bus, store);
 
   const ctx = new WrapContext(bus, store, { ...opts, label: opts.label ?? defaultLabel(pipe) });
+  ctx.replays = registryFor(bus, opts.replayHistory);
   const { model, tokenizer } = pipe;
   if (isInstanceLike(tokenizer)) ctx.tokenizer = tokenizer;
 
@@ -102,6 +112,7 @@ export function attach(pipe: unknown, opts: AttachOptions = {}): AttachHandle {
       if (detached) return;
       detached = true;
       for (let i = restores.length - 1; i >= 0; i--) restores[i]();
+      ctx.replays?.dropByPipe(pipe);
     },
   };
 }

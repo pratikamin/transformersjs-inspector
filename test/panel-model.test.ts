@@ -297,3 +297,23 @@ describe('maxCalls cap', () => {
     expect(state.calls.map((c) => c.id)).toEqual(['c1']);
   });
 });
+
+describe('replayOf (story 9)', () => {
+  test('call:start copies replayOf; absent means null; a synthetic placeholder adopts it too', () => {
+    const state = createState();
+    reduce(state, start('c1'));
+    expect(state.byId.get('c1')?.replayOf).toBeNull();
+    reduce(state, { ...start('c2'), replayOf: 'c1' } as InspectorEvent);
+    expect(state.byId.get('c2')).toMatchObject({ replayOf: 'c1', synthetic: false, n: 2 });
+    // Events for c3 arrived before its call:start (history cap): the late start fills replayOf in.
+    reduce(state, tokenize('c3'));
+    expect(state.byId.get('c3')).toMatchObject({ synthetic: true, replayOf: null });
+    const { change } = reduce(state, { ...start('c3'), replayOf: 'c2' } as InspectorEvent);
+    expect(change).toBe('updated');
+    expect(state.byId.get('c3')).toMatchObject({ synthetic: false, replayOf: 'c2' });
+    // A repeated call:start without replayOf clears it (the reducer mirrors the event).
+    reduce(state, start('c3'));
+    expect(state.byId.get('c3')?.replayOf).toBeNull();
+    expect(reduce(createState(), { ...start('c1'), replayOf: 'c0' } as InspectorEvent).call.replayOf).toBe('c0');
+  });
+});

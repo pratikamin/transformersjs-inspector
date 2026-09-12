@@ -60,8 +60,23 @@ function statusOf(call: CallView): 'pending' | 'ok' | 'err' {
 
 // ---- summary row ----------------------------------------------------------------
 
-/** One clickable line per call: `#n`, label, input excerpt, wall time and a status dot. */
-export function renderRowSummary(call: CallView): HTMLElement {
+/**
+ * The `replay of #n` marker of a replayed call: `n` when the original is still in `byId`,
+ * its id otherwise (the cap may have dropped it). Empty for an ordinary call, so the grid
+ * keeps its columns.
+ */
+function renderReplayOf(call: CallView, byId: ReadonlyMap<string, CallView> | undefined): HTMLElement {
+  if (call.replayOf === null) return h('span', { class: 'replay-of' });
+  const original = byId?.get(call.replayOf);
+  return h('span', { class: 'replay-of', data: { replayOf: call.replayOf }, title: `replay of ${call.replayOf}` }, `replay of ${original ? `#${original.n}` : call.replayOf}`);
+}
+
+/**
+ * One clickable line per call: `#n`, label, input excerpt, the replay marker, a Replay
+ * button (`data-action="replay"`, `data-call-id`; none on a synthetic row, which has no
+ * recorded arguments), wall time and a status dot. `byId` resolves the marker's `#n`.
+ */
+export function renderRowSummary(call: CallView, byId?: ReadonlyMap<string, CallView>): HTMLElement {
   const status = statusOf(call);
   return h(
     'div',
@@ -69,6 +84,8 @@ export function renderRowSummary(call: CallView): HTMLElement {
     h('span', { class: 'n' }, `#${call.n}`),
     h('span', { class: 'label' }, call.label),
     h('span', { class: 'excerpt' }, inputExcerpt(call.input)),
+    renderReplayOf(call, byId),
+    call.synthetic ? h('span', { class: 'replay-slot' }) : h('button', { class: 'btn replay', data: { action: 'replay', callId: call.id }, title: 'run this call again with the same input' }, 'Replay'),
     h('span', { class: 'ms' }, fmtMs(call.ms)),
     h('span', { class: `dot ${status}`, title: status }),
   );

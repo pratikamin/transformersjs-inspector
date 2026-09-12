@@ -5,12 +5,13 @@
  * Ports are closed in `afterEach` or the open handles keep Vitest alive.
  */
 import { afterEach, describe, expect, test, vi } from 'vitest';
+import { attach } from '../src/attach';
 import { InspectorBus } from '../src/bus';
 import type { InspectorEvent, TensorData } from '../src/events';
 import { TensorStore } from '../src/store';
 import { connectWorker, exposeToPage, messagePortTransport } from '../src/worker';
 import type { PortLike } from '../src/worker';
-import { fakeTensor } from './fakes';
+import { fakePipeline, fakeTensor } from './fakes';
 
 const ev = (n: number): InspectorEvent => ({ type: 'token', callId: 'c1', step: n, ids: [n], text: `t${n}`, t: n });
 const settle = () => new Promise<void>((r) => setTimeout(r, 20));
@@ -69,6 +70,29 @@ describe('messagePortTransport over MessageChannel', () => {
 
     // An unknown id is an ordinary (ok) response carrying the store's error, not a rejection.
     await expect(page.request('tensor', { id: 'nope' })).resolves.toEqual({ id: 'nope', error: 'unknown' });
+  });
+
+  test("page.request('replay') is answered by the registry attach() put on the worker bus; the new call's events reach the page", async () => {
+    const { page, worker } = openChannel();
+    const pipe = fakePipeline();
+    const handle = attach(pipe, { bus: worker, panel: false });
+    await pipe('over the bridge');
+    const resultsOn = (bus: InspectorBus) => bus.history.filter((e) => e.type === 'result');
+    await vi.waitFor(() => expect(resultsOn(page)).toHaveLength(1));
+
+    // The page bus has no 'replay' handler of its own: the request crosses the port and is
+    // answered as soon as the replayed call has started on the worker side.
+    await expect(page.request('replay', { callId: 'c1' })).resolves.toEqual({ ok: true, callId: 'c2' });
+    await vi.waitFor(() => expect(resultsOn(page)).toHaveLength(2));
+    const starts = page.history.filter((e) => e.type === 'call:start');
+    expect(starts).toHaveLength(2);
+    expect(starts[1]).toMatchObject({ callId: 'c2', replayOf: 'c1', label: 'feature-extraction · bert' });
+    expect(page.history.map((e) => e.type)).toEqual(worker.history.map((e) => e.type));
+    for (const e of page.history) expect(structuredClone(e)).toEqual(e);
+
+    await expect(page.request('replay', { callId: 'nope' })).resolves.toEqual({ ok: false, error: 'unknown call nope' });
+    handle.detach();
+    await expect(page.request('replay', { callId: 'c2' })).resolves.toEqual({ ok: false, error: 'unknown call c2' });
   });
 
   test('a handler that throws on the worker side rejects the page request with its message', async () => {

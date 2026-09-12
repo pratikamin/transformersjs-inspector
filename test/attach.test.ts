@@ -7,6 +7,7 @@ import { isInspectorEvent } from '../src/events';
 import { TensorStore } from '../src/store';
 import type { TensorLike } from '../src/types';
 import { WrapContext } from '../src/context';
+import { registryFor } from '../src/replay';
 import { isWrapped } from '../src/wrap/session';
 import { wrapPipelineCall } from '../src/wrap/pipeline';
 import { FAKE_PICKS, fakePipeline } from './fakes';
@@ -327,5 +328,41 @@ describe('defaults', () => {
     // attach with the default panel setting must not throw in node either
     const pipe = fakePipeline();
     expect(() => attach(pipe, { bus: new InspectorBus() }).detach()).not.toThrow();
+  });
+});
+
+describe('replay wiring (story 9)', () => {
+  test('attach() registers one replay registry per bus, sized by replayHistory on first use; detach() forgets the pipeline', async () => {
+    const bus = new InspectorBus();
+    const a = fakePipeline();
+    const b = fakePipeline();
+    const ha = attach(a, { panel: false, bus, replayHistory: 3 });
+    const registry = registryFor(bus);
+    expect(registry.max).toBe(3);
+    const hb = attach(b, { panel: false, bus, replayHistory: 50 }); // ignored: the bus already has its registry
+    expect(registryFor(bus)).toBe(registry);
+    expect(registry.max).toBe(3);
+
+    await a(TEXT);
+    await b(TEXT);
+    await a(TEXT);
+    await a(TEXT);
+    expect(registry.size).toBe(3); // c1 evicted
+    expect(['c1', 'c2', 'c3', 'c4'].map((id) => registry.has(id))).toEqual([false, true, true, true]);
+
+    ha.detach();
+    expect(['c2', 'c3', 'c4'].map((id) => registry.has(id))).toEqual([true, false, false]);
+    ha.detach();
+    hb.detach();
+    expect(registry.size).toBe(0);
+    await expect(bus.request('replay', { callId: 'c2' })).resolves.toEqual({ ok: false, error: 'unknown call c2' });
+    assertCloneSafe(bus);
+  });
+
+  test('the default is 200 and a fresh bus gets a fresh registry', () => {
+    const bus = new InspectorBus();
+    attach(fakePipeline(), { panel: false, bus });
+    expect(registryFor(bus).max).toBe(200);
+    expect(registryFor(new InspectorBus())).not.toBe(registryFor(bus));
   });
 });

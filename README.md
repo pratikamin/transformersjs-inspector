@@ -194,6 +194,33 @@ Events are the summaries already on the bus: tensor shapes, heads, token ids and
 tables, previews. Tensor bytes are never included (load them with `bus.request('tensor')`
 while the tab is open).
 
+### Replay
+
+Every row has a **Replay** button: it runs the same pipeline again with the arguments the
+call was captured with (`pipe(...args)` through the wrapped `_call`, so the new call is
+observed like any other) and a second row appears, marked `replay of #n`. The button is
+disabled until the capture side has answered, which it does **as soon as the new call has
+started**: a long generation is not waited for, its outcome arrives as ordinary events, and
+a replay that cannot start (an unknown or evicted call, a call still in flight, `detach()`
+already called, no `attach()` on the bus) turns the button red with the reason as its label
+and tooltip.
+
+The recorded arguments live where `attach()` ran, never in the panel: one registry per bus,
+holding the last `replayHistory` calls (default 200, oldest evicted first; `0` disables
+recording) and emptied for a pipeline by its `detach()`. The panel only ever sends
+`bus.request('replay', { callId })`, which is why Replay works unchanged with a pipeline in a
+Web Worker: the page bus forwards the request over `postMessage` and the worker-side registry
+answers it. Without the panel:
+
+```ts
+const res = await handle.bus.request('replay', { callId: 'c1' }); // { ok: true, callId: 'c2' } once c2 has started
+```
+
+Limitations: arguments are kept **by reference** (an audio `Float32Array` or `RawImage` the
+host mutates afterwards is replayed as it is now) and the pipeline options are replayed as
+given (a `streamer` or callback in the options is invoked again). Editing the input before
+replay is still out of scope.
+
 ## Zero-touch preload
 
 `attach(pipe)` is the headline API and always works. The secondary entry, `preload`, needs no
@@ -240,9 +267,10 @@ Three caveats, all from `docs/01-research.md`:
 ## Web Workers
 
 Many pages run the pipeline in a worker. `attach()` then lives in the worker and the panel on
-the page, joined by the same `InspectorBus` over `postMessage`. **Load values** still works:
-the page bus forwards the tensor request to the worker's store and the typed array comes back
-through structured clone.
+the page, joined by the same `InspectorBus` over `postMessage`. **Load values** and **Replay**
+still work: the page bus forwards the `tensor` request to the worker's store (the typed array
+comes back through structured clone) and the `replay` request to the worker's registry, which
+re-runs the pipeline where it lives.
 
 Worker:
 
@@ -283,6 +311,7 @@ show the full wiring.
 | `bus` | `InspectorBus` | process-wide default bus | Bus the wrappers emit on. |
 | `store` | `TensorStore` | process-wide default store | Store that hands out tensor ids and answers **Load values**. |
 | `panel` | `boolean \| PanelOptions` | mount | `false` mounts no panel; an object is passed to `mountPanel`. A no-op where there is no DOM (workers). |
+| `replayHistory` | `number` | `200` | Calls kept for **Replay** (arguments by reference), oldest evicted first; `0` disables recording. One registry per bus, sized by the first `attach()` on it. |
 
 `InspectorOptions` (`src/context.ts`):
 
@@ -317,7 +346,7 @@ feed your own UI or a test. Every event survives
 
 | Event | Carries |
 |---|---|
-| `call:start` | `callId`, `label`, `task`, `input` preview |
+| `call:start` | `callId`, `label`, `task`, `input` preview, `replayOf` (the replayed call's id, only on a replay) |
 | `tokenize` | `text`, `ids[][]`, `tokens[][]` (decoded text), `raw[][]` (vocab strings), `ms` |
 | `run:start` | `runId`, `session`, `inputs: TensorSummary[]` |
 | `run:end` | `runId`, `session`, `outputs: TensorSummary[]`, `ms`, `error` |
@@ -338,6 +367,14 @@ values are fetched with `bus.request('tensor', { id })`, whose response (`Tensor
 one place a typed array may appear. The full definitions and the `isInspectorEvent` guard are
 in [`src/events.ts`](src/events.ts).
 
+Requests go the other way, from a consumer back to where `attach()` ran; a bus with no local
+handler forwards them to its transports (the worker bridge), and they time out after 10 s:
+
+| Request | Payload | Response |
+|---|---|---|
+| `tensor` | `{ id }` | `TensorData`: `{ id, dtype, dims, data }` (typed array or `string[]`) or `{ id, error }` |
+| `replay` | `{ callId }` | `ReplayResult`: `{ ok: true, callId }` as soon as the new call has started, or `{ ok: false, error }` |
+
 ## What you cannot see
 
 By design (`docs/00-brief.md`):
@@ -348,7 +385,8 @@ By design (`docs/00-brief.md`):
 - **Transformers.js 4.x only.** Not TensorFlow.js, WebLLM, MediaPipe or pages that call
   onnxruntime-web directly. The tokenizer and pipeline hooks use underscore-private methods
   (`tokenizer._call`, `pipe._call`) that are stable in practice but not documented API.
-- **Read-only.** No editing or replaying of inputs.
+- **Replay re-runs a captured call with the same input.** Editing the input before replay is
+  still out; the arguments are replayed by reference, exactly as they are at that moment.
 - **Nothing stored or sent by the library.** No `localStorage`, no network requests;
   everything lives in the tab and is gone on reload. **Export** is the one way out: a
   user-initiated download (or clipboard copy) of the event history, never automatic.

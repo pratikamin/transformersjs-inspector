@@ -6,8 +6,14 @@
  * with a preview of the first argument and, once the original settles, `result` with a
  * clone-safe copy of the value (tensors become `{ $tensor }` summaries in the store) or the
  * error string.
+ *
+ * Replay (v1.1): each call is recorded in `ctx.replays` with its raw `args`, and a call the
+ * replay handler started (it sets `ctx.pendingReplayOf` just before invoking this wrapper)
+ * carries `replayOf` on its `call:start`. The handler reads the new id back from
+ * `ctx.lastCallId`, which is why `call:start` must stay ahead of the first `await`.
  */
 import type { WrapContext } from '../context';
+import type { ReplayEntry } from '../replay';
 import type { PipelineLike } from '../types';
 import { previewInput, toCloneSafe } from '../preview';
 import { isWrapped, noop, replaceMethod } from './session';
@@ -27,10 +33,15 @@ export function wrapPipelineCall(pipe: PipelineLike, ctx: WrapContext): () => vo
   const task = typeof pipe.task === 'string' ? pipe.task : null;
   const wrapped: PipelineLike['_call'] = async (...args) => {
     const callId = ctx.nextCallId();
+    const replayOf = ctx.pendingReplayOf;
+    ctx.pendingReplayOf = null;
+    ctx.lastCallId = callId;
+    const entry: ReplayEntry = { pipe, args, ctx, inFlight: true };
+    ctx.replays?.record(callId, entry);
     const previous = ctx.currentCallId;
     ctx.currentCallId = callId;
     const t0 = ctx.now();
-    ctx.bus.emit({ type: 'call:start', callId, label: ctx.opts.label, task, input: previewInput(args[0]), t: t0 });
+    ctx.bus.emit({ type: 'call:start', callId, label: ctx.opts.label, task, input: previewInput(args[0]), ...(replayOf !== null ? { replayOf } : {}), t: t0 });
     try {
       const result = await original.apply(pipe, args);
       const t = ctx.now();
@@ -41,6 +52,7 @@ export function wrapPipelineCall(pipe: PipelineLike, ctx: WrapContext): () => vo
       ctx.bus.emit({ type: 'result', callId, result: null, ms: t - t0, error: String(e), t });
       throw e;
     } finally {
+      entry.inFlight = false;
       ctx.currentCallId = previous;
     }
   };

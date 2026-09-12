@@ -142,7 +142,7 @@ export const PANEL_CSS = `
 
 .summary {
   display: grid;
-  grid-template-columns: 3em minmax(8em, max-content) 1fr auto 1em;
+  grid-template-columns: 3em minmax(8em, max-content) 1fr auto auto auto 1em;
   align-items: center;
   gap: 8px;
   padding: 5px 10px;
@@ -154,6 +154,9 @@ export const PANEL_CSS = `
 .label { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .excerpt { color: var(--tjsi-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ms { color: var(--tjsi-muted); white-space: nowrap; text-align: right; }
+.replay-of { color: var(--tjsi-muted); white-space: nowrap; }
+.btn.replay { padding: 1px 6px; font-size: 11px; white-space: nowrap; }
+.btn.replay[data-replay-error] { color: var(--tjsi-err); border-color: var(--tjsi-err); }
 .dot { width: 8px; height: 8px; border-radius: 50%; justify-self: center; }
 .dot.pending { background: var(--tjsi-warn); }
 .dot.ok { background: var(--tjsi-ok); }

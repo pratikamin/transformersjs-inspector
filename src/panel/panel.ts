@@ -6,7 +6,8 @@
  * sections. Tensor values are fetched only when "Load values" or "Preview" is clicked: those
  * are the sole callers of `bus.request('tensor')`. Details are re-rendered wholesale on every
  * update of an expanded call, so values loaded into a still-running call disappear and need
- * another click.
+ * another click. **Replay** is the other request the panel issues: `bus.request('replay',
+ * { callId })`, answered where `attach()` ran; the new row arrives as ordinary events.
  */
 import type { InspectorBus } from '../bus';
 import type { InspectorEvent, TensorData } from '../events';
@@ -123,14 +124,14 @@ export function mountPanel(bus: InspectorBus, opts: PanelOptions = {}): Inspecto
   };
 
   const appendRow = (call: CallView): void => {
-    const summary = renderRowSummary(call);
+    const summary = renderRowSummary(call, state.byId);
     const row = h('li', { class: 'row' }, summary);
     rows.appendChild(row);
     rendered.set(call.id, { row, summary, details: null });
   };
 
   const patchRow = (refs: RowRefs, call: CallView): void => {
-    const summary = renderRowSummary(call);
+    const summary = renderRowSummary(call, state.byId);
     refs.summary.replaceWith(summary);
     refs.summary = summary;
     if (refs.details) {
@@ -203,6 +204,30 @@ export function mountPanel(bus: InspectorBus, opts: PanelOptions = {}): Inspecto
     }
   };
 
+  /**
+   * Resolves one Replay click. The button is disabled until the request settles (the
+   * capture side answers as soon as the new call has started); `ok: false` or a rejection
+   * puts the message on the button (`data-replay-error`, title and label) until the next
+   * click. The new row is not touched here: its events arrive through the bus.
+   */
+  const replayCall = async (callId: string, button: HTMLButtonElement): Promise<void> => {
+    button.disabled = true;
+    delete button.dataset.replayError;
+    button.title = 'run this call again with the same input';
+    button.textContent = 'Replay';
+    try {
+      const res = await bus.request('replay', { callId });
+      if (!res.ok) throw new Error(res.error);
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      button.dataset.replayError = message;
+      button.title = message;
+      button.textContent = 'Replay failed';
+    } finally {
+      button.disabled = false;
+    }
+  };
+
   let statusTimer: ReturnType<typeof setTimeout> | null = null;
   /** Shows `text` in the header for `STATUS_FLASH_MS`; a new flash restarts the clock. */
   const flash = (text: ExportStatus): void => {
@@ -254,6 +279,11 @@ export function mountPanel(bus: InspectorBus, opts: PanelOptions = {}): Inspecto
       case 'export':
         void doExport(e instanceof MouseEvent && e.shiftKey);
         break;
+      case 'replay': {
+        const id = actionEl.dataset.callId;
+        if (id !== undefined && actionEl instanceof HTMLButtonElement && !actionEl.disabled) void replayCall(id, actionEl);
+        break;
+      }
       case 'load':
       case 'preview': {
         const row = actionEl.closest<HTMLElement>('tr[data-tensor]');

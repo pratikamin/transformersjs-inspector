@@ -4,6 +4,7 @@
  * correlation. One `WrapContext` per `attach()`.
  */
 import type { InspectorBus } from './bus';
+import type { ReplayRegistry } from './replay';
 import type { TensorStore } from './store';
 import type { TokenizerLike } from './types';
 import { DEFAULT_MAX_BYTES } from './store';
@@ -112,6 +113,12 @@ export class WrapContext {
   currentCallId: string | null = null;
   /** Used by `tokenStrings`; the tokenizer wrapper sets it, `attach()` may set it earlier. */
   tokenizer: TokenizerLike | null = null;
+  /** Set by the replay handler right before it invokes the pipeline; the wrapper moves it onto the next `call:start.replayOf`. */
+  pendingReplayOf: string | null = null;
+  /** The id the pipeline wrapper allocated most recently (read synchronously by the replay handler). */
+  lastCallId: string | null = null;
+  /** Where the pipeline wrapper records `{ pipe, args }` per call; `null` when replay is off. */
+  replays: ReplayRegistry | null = null;
   private readonly counters: IdCounters;
   /** `tokenStrings` memo, valid for `tokenCacheFor` only (the tokenizer may be swapped between calls). */
   private readonly tokenCache = new Map<number, TokenStrings>();

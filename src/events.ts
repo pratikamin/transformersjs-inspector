@@ -30,7 +30,8 @@ export type InputPreview =
 export type TopKEntry = { id: number; token: string | null; logit: number; prob: number; raw?: string | null };
 
 export type InspectorEvent =
-  | { type: 'call:start'; callId: string; label: string; task: string | null; input: InputPreview; t: number }
+  // `replayOf` (optional, v1.1): the `callId` of the captured call this one re-ran (`bus.request('replay')`).
+  | { type: 'call:start'; callId: string; label: string; task: string | null; input: InputPreview; replayOf?: string; t: number }
   // `tokens` are decoded per id; `raw` (optional, v1.1) holds the vocab strings in the same shape.
   | { type: 'tokenize'; callId: string | null; text: string | string[]; ids: number[][]; tokens: (string | null)[][]; raw?: (string | null)[][]; ms: number; t: number }
   | { type: 'run:start'; callId: string | null; runId: string; session: string; inputs: TensorSummary[]; t: number }
@@ -45,7 +46,12 @@ export type InspectorEventType = InspectorEvent['type'];
 // Request/response (not events); responses may carry typed arrays.
 export interface RequestMap {
   tensor: { req: { id: string }; res: TensorData };
+  /** Re-runs a captured pipeline call with its original arguments (`src/replay.ts`). */
+  replay: { req: { callId: string }; res: ReplayResult };
 }
+
+/** `callId` is the *new* call's id; it is returned as soon as that call has started, not when it ends. */
+export type ReplayResult = { ok: true; callId: string } | { ok: false; error: string };
 
 export type TensorData =
   | { id: string; dtype: string; dims: number[]; data: ArrayBufferView | string[] }
@@ -103,7 +109,7 @@ export function isInspectorEvent(x: unknown): x is InspectorEvent {
   if (!isObj(x) || !isStr(x.type) || !isNum(x.t)) return false;
   switch (x.type) {
     case 'call:start':
-      return isStr(x.callId) && isStr(x.label) && isStrOrNull(x.task) && isInputPreview(x.input);
+      return isStr(x.callId) && isStr(x.label) && isStrOrNull(x.task) && isInputPreview(x.input) && (isAbsent(x.replayOf) || isStr(x.replayOf));
     case 'tokenize':
       return (
         isStrOrNull(x.callId) &&

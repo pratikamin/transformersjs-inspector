@@ -60,6 +60,8 @@ export interface CallView {
   done: boolean;
   /** Opened by the reducer for events that named no call (or an unknown one). */
   synthetic: boolean;
+  /** `callId` of the call this one re-ran (`call:start.replayOf`); `null` for an ordinary call. */
+  replayOf: string | null;
 }
 
 export interface PanelState {
@@ -85,7 +87,7 @@ export function createState(opts: { maxCalls?: number } = {}): PanelState {
   };
 }
 
-type CallInit = { id?: string; label: string; task: string | null; input: InputPreview | null; t: number; synthetic: boolean };
+type CallInit = { id?: string; label: string; task: string | null; input: InputPreview | null; t: number; synthetic: boolean; replayOf?: string | null };
 
 function openCall(state: PanelState, init: CallInit): CallView {
   const n = ++state.total;
@@ -106,6 +108,7 @@ function openCall(state: PanelState, init: CallInit): CallView {
     startedAt: init.t,
     done: false,
     synthetic: init.synthetic,
+    replayOf: init.replayOf ?? null,
   };
   state.calls.push(call);
   state.byId.set(id, call);
@@ -163,9 +166,10 @@ export function reduce(state: PanelState, ev: InspectorEvent): { call: CallView;
         existing.input = ev.input;
         existing.startedAt = ev.t;
         existing.synthetic = false;
+        existing.replayOf = ev.replayOf ?? null;
         return { call: existing, change: 'updated' };
       }
-      const call = openCall(state, { id: ev.callId, label: ev.label, task: ev.task, input: ev.input, t: ev.t, synthetic: false });
+      const call = openCall(state, { id: ev.callId, label: ev.label, task: ev.task, input: ev.input, t: ev.t, synthetic: false, replayOf: ev.replayOf ?? null });
       return { call, change: 'new' };
     }
 
