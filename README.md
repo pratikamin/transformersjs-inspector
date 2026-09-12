@@ -11,7 +11,7 @@ generation, and the pipeline's decoded result.
 Zero runtime dependencies. Nothing on disk is patched; every hook is a runtime wrap of a
 method on an instance Transformers.js exposes. Nothing leaves the tab.
 
-**Status:** v0.1.0, verified against `@huggingface/transformers` 4.2.0 (Transformers.js
+**Status:** v0.2.0, verified against `@huggingface/transformers` 4.2.0 (Transformers.js
 4.x only). Not yet published to npm; the CDN URLs below resolve once it is.
 
 ## 30-second usage
@@ -43,7 +43,7 @@ Script tag, with Transformers.js from a CDN:
 ```html
 <script type="module">
   import { pipeline } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.2.0';
-  import { attach } from 'https://cdn.jsdelivr.net/npm/transformersjs-inspector@0.1.0/dist/index.js';
+  import { attach } from 'https://cdn.jsdelivr.net/npm/transformersjs-inspector@0.2.0/dist/index.js';
 
   const pipe = await pipeline('text-generation', 'onnx-community/tiny-random-LlamaForCausalLM-ONNX');
   attach(pipe);
@@ -184,7 +184,7 @@ The file shape (`InspectorExport`):
 
 ```jsonc
 {
-  "version": "0.1.1",                  // library version that wrote it
+  "version": "0.2.0",                  // library version that wrote it
   "exportedAt": "2026-09-11T09:05:07.123Z",
   "events": [ /* InspectorEvent[], exactly as emitted, oldest first */ ]
 }
@@ -230,7 +230,7 @@ evaluates, whose `InferenceSession.create` wraps every session's `run`. Load it 
 script **before** the script that loads Transformers.js:
 
 ```html
-<script type="module" src="https://cdn.jsdelivr.net/npm/transformersjs-inspector@0.1.0/dist/preload.js"></script>
+<script type="module" src="https://cdn.jsdelivr.net/npm/transformersjs-inspector@0.2.0/dist/preload.js"></script>
 <script type="module">
   import { pipeline } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.2.0';
   const pipe = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', { device: 'auto' });
