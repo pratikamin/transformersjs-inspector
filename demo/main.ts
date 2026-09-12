@@ -19,20 +19,26 @@ const isTheme = (v: string | null): v is Theme => (THEMES as readonly string[]).
 const DOCKS = ['bottom-right', 'bottom-left', 'top-right', 'top-left'] as const;
 type Dock = (typeof DOCKS)[number];
 const isDock = (v: string | null): v is Dock => (DOCKS as readonly string[]).includes(v ?? '');
+const VIEWS = ['simple', 'detail'] as const;
+type View = (typeof VIEWS)[number];
+const isView = (v: string | null): v is View => (VIEWS as readonly string[]).includes(v ?? '');
 
 /**
  * Panel options from the page URL, so the e2e specs and the README screenshots can pick a
  * variant without a UI: `?theme=dark` forces the dark theme (`light` forces light; anything
  * else, or no parameter, is `auto`) and `?dock=top-left` (or any other corner) picks where
- * the panel is fixed; an unknown value keeps the default bottom-right.
+ * the panel is fixed; an unknown value keeps the default bottom-right. `?view=detail` starts
+ * the panel in the detail view (`simple` is the default).
  */
 export function panelOptionsFromQuery(): PanelOptions {
   const params = new URLSearchParams(window.location.search);
   const theme = params.get('theme');
   const dock = params.get('dock');
+  const view = params.get('view');
   const opts: PanelOptions = {};
   if (isTheme(theme)) opts.theme = theme;
   if (isDock(dock)) opts.dock = dock;
+  if (isView(view)) opts.view = view;
   return opts;
 }
 

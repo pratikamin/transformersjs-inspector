@@ -76,6 +76,18 @@ export async function runTask(page: Page, task: string, text?: string): Promise<
   return section;
 }
 
+/**
+ * Clicks the header's Simple / Detail segment for `view` and waits for it to be marked active.
+ * The panel starts in the simple view (0.3.0), so specs that read tensor and top-k tables
+ * switch to `'detail'` first; the click lands on the button, not the header, so the panel
+ * stays open.
+ */
+export async function setView(panel: Locator, view: 'simple' | 'detail'): Promise<void> {
+  const segment = panel.locator(`[data-action="view"][data-view="${view}"]`);
+  await segment.click();
+  await expect(segment).toHaveAttribute('aria-pressed', 'true');
+}
+
 /** `<section class="section">` of an expanded call whose `<h3>` is exactly `title`. */
 export function sectionTitled(details: Locator, title: string): Locator {
   return details.locator('section.section').filter({ has: details.page().locator('h3', { hasText: new RegExp(`^${title}$`) }) });

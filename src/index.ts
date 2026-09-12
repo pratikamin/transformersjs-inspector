@@ -13,5 +13,7 @@ export { mountPanel } from './panel/panel';
 export { exportEvents, exportFilename, serializeExport } from './export';
 export type { InspectorExport, ExportOptions } from './export';
 export type { PanelOptions, InspectorPanel } from './panel/panel';
+export { summarizeResult, describeRuns } from './panel/summary';
+export type { ViewMode, ResultSummary, LabelScore } from './panel/summary';
 export type * from './events';
 export type { PipelineLike, SessionLike, TokenizerLike, TensorLike } from './types';

@@ -4,11 +4,13 @@
  * way `demo.spec.ts` / `generation.spec.ts` do, expands the call row, scrolls the section of
  * interest to the top of the panel body and takes an element screenshot of the panel host
  * (`[data-tjsi-panel]`, fixed bottom-right, 560 px wide) at device scale factor 2, so the
- * PNGs are 1120 px wide and stay readable when the README scales them down.
+ * PNGs are 1120 px wide and stay readable when the README scales them down. The panel starts
+ * in the simple view; the three table screenshots switch to detail first, and
+ * `panel-simple.png` keeps the default.
  */
 import { fileURLToPath } from 'node:url';
 import type { Locator, Page } from '@playwright/test';
-import { expect, runTask, test } from './fixtures';
+import { expect, runTask, setView, test } from './fixtures';
 
 const IMG_DIR = new URL('../docs/img/', import.meta.url);
 const imgPath = (name: string): string => fileURLToPath(new URL(name, IMG_DIR));
@@ -21,17 +23,19 @@ function sectionTitled(details: Locator, title: string): Locator {
   return details.locator('section.section').filter({ has: details.page().locator('h3', { hasText: new RegExp(`^${title}$`) }) });
 }
 
-/** Opens the panel, expands the only call row and returns its details block. */
-async function expandOnlyRow(page: Page): Promise<{ panel: Locator; details: Locator }> {
+/** Opens the panel in `view`, expands the only call row and returns its details block. */
+async function expandOnlyRow(page: Page, view: 'simple' | 'detail'): Promise<{ panel: Locator; details: Locator }> {
   const panel = page.locator('[data-tjsi-panel]');
   await expect(panel).toHaveCount(1);
   await expect(panel.locator('[data-badge]')).toHaveText('1');
   await panel.locator('[data-action="toggle"]').click();
+  await setView(panel, view);
   const rows = panel.locator('[data-call]');
   await expect(rows).toHaveCount(1);
   await rows.first().click();
   const details = panel.locator('[data-details]');
   await expect(details).toHaveCount(1);
+  await expect(details).toHaveAttribute('data-view', view);
   return { panel, details };
 }
 
@@ -45,7 +49,7 @@ async function shoot(panel: Locator, target: Locator, file: string): Promise<voi
 test('panel-embedding.png: feature extraction with tokens, session tensors and loaded values', async ({ page }) => {
   await page.goto('/');
   await runTask(page, 'feature-extraction', 'The inspector sees everything.');
-  const { panel, details } = await expandOnlyRow(page);
+  const { panel, details } = await expandOnlyRow(page, 'detail');
 
   const run = sectionTitled(details, 'Session runs').locator('.run').first();
   const hidden = run.locator('table.tensors tr[data-tensor]').filter({ has: page.locator('td.name', { hasText: /^last_hidden_state$/ }) });
@@ -57,10 +61,24 @@ test('panel-embedding.png: feature extraction with tokens, session tensors and l
   await shoot(panel, sectionTitled(details, 'Tokenizer'), 'panel-embedding.png');
 });
 
+test('panel-simple.png: text generation in the simple view (step lines with top-5 alternatives)', async ({ page }) => {
+  await page.goto('/');
+  await runTask(page, 'text-generation', 'hi');
+  const { panel, details } = await expandOnlyRow(page, 'simple');
+
+  await expect(sectionTitled(details, 'Model').locator('[data-model-line]')).toContainText('prefill');
+  const generation = sectionTitled(details, 'Generation');
+  await expect(generation.locator('.step')).toHaveCount(3);
+  await expect(generation.locator('.alt.picked')).toHaveCount(3);
+  await expect(details.locator('table')).toHaveCount(0);
+
+  await shoot(panel, sectionTitled(details, 'Input'), 'panel-simple.png');
+});
+
 test('panel-generation.png: text generation with per-step top-k', async ({ page }) => {
   await page.goto('/');
   await runTask(page, 'text-generation', 'hi');
-  const { panel, details } = await expandOnlyRow(page);
+  const { panel, details } = await expandOnlyRow(page, 'detail');
 
   const generation = sectionTitled(details, 'Generation');
   await expect(generation.locator('.step')).toHaveCount(3);
@@ -72,7 +90,7 @@ test('panel-generation.png: text generation with per-step top-k', async ({ page 
 test('panel-dark.png: text generation under theme: dark', async ({ page }) => {
   await page.goto('/?theme=dark');
   await runTask(page, 'text-generation', 'hi');
-  const { panel, details } = await expandOnlyRow(page);
+  const { panel, details } = await expandOnlyRow(page, 'detail');
 
   await expect(panel).toHaveAttribute('data-theme', 'dark');
   // --tjsi-bg of DARK_VARS (#0d1117): the explicit option must win whatever the OS prefers.

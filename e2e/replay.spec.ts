@@ -4,7 +4,7 @@
  * pipeline's wrapped `_call` with the original arguments: a second row appears, marked as a
  * replay of the first, with the same tokenizer ids and the same `last_hidden_state` dims.
  */
-import { TASK_TIMEOUT, dimsOf, expect, runTask, sectionTitled, tensorRow, test } from './fixtures';
+import { TASK_TIMEOUT, dimsOf, expect, runTask, sectionTitled, setView, tensorRow, test } from './fixtures';
 
 const SENTENCE = 'Replay the inspector once more.';
 
@@ -41,7 +41,8 @@ test('feature extraction: Replay adds a second row marked as a replay of #1 with
   await expect(second.locator('.dot.ok')).toHaveCount(1, { timeout: TASK_TIMEOUT });
   await expect(replay).toBeEnabled();
 
-  // Same tokens, same session shapes.
+  // Same tokens, same session shapes (the ids and tensor rows are detail-view content).
+  await setView(panel, 'detail');
   await first.click();
   await second.click();
   const details = panel.locator('[data-details]');

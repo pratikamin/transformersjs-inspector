@@ -7,7 +7,7 @@
  * Panel selectors resolve through the open shadow root of `[data-tjsi-panel]`.
  */
 import type { Locator } from '@playwright/test';
-import { READY_TIMEOUT, TASK_TIMEOUT, expect, test } from './fixtures';
+import { READY_TIMEOUT, TASK_TIMEOUT, expect, setView, test } from './fixtures';
 
 const SENTENCE = 'The inspector sees everything.';
 
@@ -60,6 +60,7 @@ test('worker: a pipeline attached inside a module worker fills the page panel, a
   await expect(rows.first().locator('.label')).toContainText('feature-extraction');
   await expect(rows.first().locator('.excerpt')).toContainText(SENTENCE);
 
+  await setView(panel, 'detail'); // tensor rows are detail-view content
   await rows.first().click();
   const details = panel.locator('[data-details]');
   await expect(details).toHaveCount(1);

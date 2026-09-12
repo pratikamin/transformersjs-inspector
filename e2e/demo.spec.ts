@@ -5,7 +5,7 @@
  * CSS engine pierces open shadow roots).
  */
 import type { Locator } from '@playwright/test';
-import { expect, runTask, test } from './fixtures';
+import { expect, runTask, setView, test } from './fixtures';
 
 const SENTENCE = 'The inspector sees everything.';
 
@@ -21,7 +21,7 @@ function tensorRow(scope: Locator, name: string): Locator {
 
 const dimsOf = (row: Locator): Locator => row.locator('td').nth(2);
 
-test('feature extraction: one call row with tokens, session tensors, lazy values and a $tensor result', async ({ page }) => {
+test('feature extraction: simple view first (Model line, embedding line, no tables), then tokens, session tensors, lazy values and a $tensor result in detail', async ({ page }) => {
   await page.goto('/');
   await expect(page.locator('[data-task="feature-extraction"]')).toHaveAttribute('data-status', 'idle');
 
@@ -42,6 +42,25 @@ test('feature extraction: one call row with tokens, session tensors, lazy values
   await rows.first().click();
   const details = panel.locator('[data-details]');
   await expect(details).toHaveCount(1);
+
+  // Simple view (the default): one Model line instead of the tensor tables, text-only chips,
+  // the pooled [1, 384] result as one embedding line, and no tensor rows or JSON anywhere.
+  await expect(panel.locator('[data-action="view"][data-view="simple"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(details).toHaveAttribute('data-view', 'simple');
+  await expect(sectionTitled(details, 'Model').locator('[data-model-line]')).toHaveText(/^1 model run · \d+(\.\d+)? ms$/);
+  await expect(sectionTitled(details, 'Session runs')).toHaveCount(0);
+  await expect(details.locator('table')).toHaveCount(0);
+  await expect(details.locator('[data-tensor]')).toHaveCount(0);
+  await expect(details.locator('button[data-action="load"]')).toHaveCount(0);
+  await expect(sectionTitled(details, 'Tokenizer').locator('.chip.chip-simple').first()).toBeVisible();
+  await expect(sectionTitled(details, 'Tokenizer').locator('.chip-id')).toHaveCount(0);
+  await expect(sectionTitled(details, 'Result').locator('[data-result-summary="tensor"]')).toHaveText('embedding · float32 · 384 values');
+  await expect(sectionTitled(details, 'Result').locator('pre')).toHaveCount(0);
+
+  // Detail view: the row stays expanded and the tables appear.
+  await setView(panel, 'detail');
+  await expect(details).toHaveCount(1);
+  await expect(details).toHaveAttribute('data-view', 'detail');
 
   // Tokenizer: BERT wraps the sentence in [CLS] … [SEP].
   const chips = sectionTitled(details, 'Tokenizer').locator('.chip .chip-str');

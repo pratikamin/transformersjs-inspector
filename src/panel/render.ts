@@ -8,12 +8,20 @@
  * dims look like an image (`imageShapeOf`) goes through the same cell and `renderTensorImage`.
  * The `Generation` section sets its `.bar` widths through the CSSOM property, never a markup
  * attribute, so a strict CSP is fine.
+ *
+ * Two views: `'detail'` is the full rendering (tensor tables, top-k tables, JSON result);
+ * `'simple'` (`renderRowDetails(call, ctx, 'simple')`) keeps the Input section, shows text-only
+ * token chips, folds the session runs into one `Model` line (`describeRuns`), lists the top 5
+ * alternatives per generation step as percentages, and renders the result through
+ * `summarizeResult`. Nothing in the simple view requests tensors.
  */
 import type { InspectorBus } from '../bus';
 import type { InputPreview, TensorData, TensorSummary, TopKEntry } from '../events';
 import { empty, fmtBytes, fmtDims, fmtMs, fmtNum, h, isDataImageUrl, svg } from './dom';
 import type { Child } from './dom';
 import type { CallView, RunView, StepView, TokenizeEvent } from './model';
+import { describeRuns, summarizeResult } from './summary';
+import type { ViewMode } from './summary';
 import { describeMapping, imageShapeOf, rasterize } from './tensor-image';
 
 /** What sections may need beyond the call itself (story 6 issues `ctx.bus.request('tensor')`). */
@@ -184,7 +192,8 @@ export function tokenText(s: string | null): Child[] {
   return out;
 }
 
-function renderTokenize(ev: TokenizeEvent, index: number): HTMLElement {
+/** Detail chips carry the id above the text; simple chips (`chip-simple`) show the text alone, the id and raw string in the title. */
+function renderTokenize(ev: TokenizeEvent, index: number, view: ViewMode): HTMLElement {
   const rows = ev.ids.map((ids, row) =>
     h(
       'div',
@@ -192,7 +201,9 @@ function renderTokenize(ev: TokenizeEvent, index: number): HTMLElement {
       ids.map((id, i) => {
         const str = ev.tokens[row]?.[i] ?? null;
         const raw = ev.raw?.[row]?.[i] ?? null;
-        return h('span', { class: 'chip', title: `id ${id} · raw ${raw ?? '∅'}` }, h('span', { class: 'chip-id' }, String(id)), h('span', { class: 'chip-str' }, tokenText(str)));
+        const title = `id ${id} · raw ${raw ?? '∅'}`;
+        if (view === 'simple') return h('span', { class: 'chip chip-simple', title }, h('span', { class: 'chip-str' }, tokenText(str)));
+        return h('span', { class: 'chip', title }, h('span', { class: 'chip-id' }, String(id)), h('span', { class: 'chip-str' }, tokenText(str)));
       }),
     ),
   );
@@ -254,6 +265,15 @@ function renderRun(run: RunView, index: number): HTMLElement {
     run.inputs.length ? renderTensorTable(run.inputs) : h('div', { class: 'muted' }, 'none'),
     h('h4', null, `Outputs (${run.outputs.length})`),
     run.done ? (run.outputs.length ? renderTensorTable(run.outputs) : h('div', { class: 'muted' }, 'none')) : h('div', { class: 'muted' }, 'pending…'),
+  );
+}
+
+/** The simple view's stand-in for the Session runs section: one `describeRuns` line plus any run errors. */
+function renderModel(call: CallView): HTMLElement {
+  return section(
+    'Model',
+    h('div', { class: 'model-line', data: { modelLine: '' } }, describeRuns(call)),
+    call.runs.filter((r) => r.error !== null).map((r) => h('div', { class: 'error' }, `${r.session} · ${r.runId} · ${r.error}`)),
   );
 }
 
@@ -394,9 +414,56 @@ function renderStep(step: StepView): HTMLElement {
   );
 }
 
-/** Per-step token and top-k table; only called when `call.steps.length > 0`. */
-export function renderGeneration(call: CallView): HTMLElement {
-  return section('Generation', h('div', { class: 'meta' }, `${call.steps.length} step${call.steps.length === 1 ? '' : 's'}`), call.steps.map(renderStep));
+/** Alternatives listed per step in the simple view. */
+export const SIMPLE_TOP_N = 5;
+
+/**
+ * A probability as a percentage: one decimal from 1 % up (`99.7%`, `12.4%`), two significant
+ * digits below that (`0.12%`, `0.012%`), and `<0.01%` under 0.01 %.
+ */
+export function fmtPct(prob: number): string {
+  const pct = Number.isFinite(prob) ? Math.min(100, Math.max(0, prob * 100)) : 0;
+  if (pct >= 1) return `${pct.toFixed(1)}%`;
+  if (pct >= 0.01) return `${Number(pct.toPrecision(2))}%`;
+  return '<0.01%';
+}
+
+/**
+ * One `token  12.4%` row per entry with the probability bar, as `li.alt[data-token]` cells
+ * of a grid (`.picked` on the chosen token; the raw vocab string on hover).
+ */
+function renderAlternatives(entries: TopKEntry[], picked: number[]): HTMLElement {
+  return h(
+    'ol',
+    { class: 'alts' },
+    entries.slice(0, SIMPLE_TOP_N).map((e) => {
+      const bar = h('div', { class: 'bar' });
+      bar.style.width = clampPct(e.prob);
+      return h(
+        'li',
+        { class: picked.includes(e.id) ? 'alt picked' : 'alt', data: { token: e.id } },
+        h('span', { class: 'alt-tok', title: e.raw ?? '' }, tokenText(e.token)),
+        h('span', { class: 'alt-pct' }, fmtPct(e.prob)),
+        bar,
+      );
+    }),
+  );
+}
+
+function renderStepSimple(step: StepView): HTMLElement {
+  const ids = step.ids ?? [];
+  const picked = step.text !== undefined && step.text !== null ? `"${step.text}"` : ids.length ? `token ${ids.join(', ')}` : '…';
+  return h(
+    'div',
+    { class: 'step', data: { step: step.step } },
+    h('div', { class: 'meta step-head' }, `step ${step.step} → ${picked}`),
+    step.topK ? (step.topK.length ? renderAlternatives(step.topK, ids) : h('div', { class: 'muted' }, 'empty top-k')) : h('div', { class: 'muted' }, 'no logits captured'),
+  );
+}
+
+/** Per-step token and top-k table (detail) or `step n → "text"` line with the top 5 alternatives (simple); only called when `call.steps.length > 0`. */
+export function renderGeneration(call: CallView, view: ViewMode = 'detail'): HTMLElement {
+  return section('Generation', h('div', { class: 'meta' }, `${call.steps.length} step${call.steps.length === 1 ? '' : 's'}`), call.steps.map(view === 'simple' ? renderStepSimple : renderStep));
 }
 
 // ---- result ---------------------------------------------------------------------
@@ -418,25 +485,50 @@ export function collectResultTensors(value: unknown, out: TensorSummary[] = [], 
   return out;
 }
 
-function renderResult(call: CallView): HTMLElement {
+/** The simple Result body: the text, the `label  93.2%` list, the one-line tensor description, or the JSON. */
+function renderResultSimple(result: unknown): Child {
+  const summary = summarizeResult(result);
+  switch (summary.kind) {
+    case 'text':
+      return h('pre', { class: 'result-text', data: { resultSummary: 'text' } }, summary.text);
+    case 'labels':
+      return h(
+        'ol',
+        { class: 'alts labels', data: { resultSummary: 'labels' } },
+        summary.rows.map((row) => {
+          const bar = h('div', { class: 'bar' });
+          bar.style.width = clampPct(row.score);
+          return h('li', { class: 'alt' }, h('span', { class: 'alt-tok' }, row.label), h('span', { class: 'alt-pct' }, fmtPct(row.score)), bar);
+        }),
+      );
+    case 'tensor':
+      return h('div', { class: 'model-line', data: { resultSummary: 'tensor', resultTensor: summary.tensor.id }, title: `${summary.tensor.name} ${fmtDims(summary.tensor.dims)}` }, summary.text);
+    case 'json':
+      return h('pre', { data: { resultSummary: 'json' } }, safeJson(summary.json));
+  }
+}
+
+function renderResult(call: CallView, view: ViewMode): HTMLElement {
   if (!call.done) return section('Result', h('div', { class: 'muted' }, 'pending…'));
   if (call.error !== null) return section('Result', h('div', { class: 'error' }, call.error));
   if (call.synthetic) return section('Result', h('div', { class: 'muted' }, 'direct call, no pipeline result'));
+  if (view === 'simple') return section('Result', h('div', { class: 'meta' }, fmtMs(call.ms)), renderResultSimple(call.result));
   const tensors = collectResultTensors(call.result);
   return section('Result', h('div', { class: 'meta' }, fmtMs(call.ms)), tensors.length ? renderTensorTable(tensors) : null, h('pre', null, safeJson(call.result)));
 }
 
 /**
- * Everything below a summary row: Input, Tokenizer, Session runs, Generation and Result.
- * Re-rendered wholesale when the call updates while expanded, which drops any values already
- * loaded into it; the panel owns the bus, so `ctx` is reserved for sections that request.
+ * Everything below a summary row: Input, Tokenizer, Session runs (`Model` in the simple
+ * view), Generation and Result. Re-rendered wholesale when the call updates while expanded or
+ * the view switches, which drops any values already loaded into it; the panel owns the bus,
+ * so `ctx` is reserved for sections that request.
  */
-export function renderRowDetails(call: CallView, ctx: RenderContext): HTMLElement {
+export function renderRowDetails(call: CallView, ctx: RenderContext, view: ViewMode = 'detail'): HTMLElement {
   void ctx;
   const sections: Child[] = [renderInput(call)];
-  if (call.tokenize.length > 0) sections.push(section('Tokenizer', call.tokenize.map(renderTokenize)));
-  if (call.runs.length > 0) sections.push(section('Session runs', call.runs.map(renderRun)));
-  if (call.steps.length > 0) sections.push(renderGeneration(call));
-  sections.push(renderResult(call));
-  return h('div', { class: 'details', data: { details: call.id } }, sections);
+  if (call.tokenize.length > 0) sections.push(section('Tokenizer', call.tokenize.map((ev, i) => renderTokenize(ev, i, view))));
+  if (call.runs.length > 0) sections.push(view === 'simple' ? renderModel(call) : section('Session runs', call.runs.map(renderRun)));
+  if (call.steps.length > 0) sections.push(renderGeneration(call, view));
+  sections.push(renderResult(call, view));
+  return h('div', { class: 'details', data: { details: call.id, view } }, sections);
 }

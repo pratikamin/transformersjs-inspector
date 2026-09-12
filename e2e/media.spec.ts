@@ -6,7 +6,7 @@
  * the Preview button (values fetched through `bus.request('tensor')`). Selectors resolve
  * through the open shadow root of `[data-tjsi-panel]`.
  */
-import { dimsOf, expect, runTask, sectionTitled, tensorRow, test } from './fixtures';
+import { dimsOf, expect, runTask, sectionTitled, setView, tensorRow, test } from './fixtures';
 
 test('image classification: input thumbnail, pixel_values preview as an image, label/score result', async ({ page }) => {
   await page.goto('/');
@@ -42,6 +42,13 @@ test('image classification: input thumbnail, pixel_values preview as an image, l
   await expect(input.locator('.meta').filter({ hasText: /^image \d/ })).toHaveText('image 224×224×4');
   // No audio on this page: no waveform anywhere in the details.
   await expect(details.locator('svg.wave')).toHaveCount(0);
+
+  // Simple view (the default): three label/percent rows and one Model line, no tables.
+  await expect(sectionTitled(details, 'Result').locator('[data-result-summary="labels"] .alt')).toHaveCount(3);
+  await expect(sectionTitled(details, 'Result').locator('.alt-pct').first()).toHaveText(/%$/);
+  await expect(sectionTitled(details, 'Model').locator('[data-model-line]')).toHaveText(/^1 model run · /);
+  await expect(details.locator('table')).toHaveCount(0);
+  await setView(panel, 'detail');
 
   // Session run: the processor's pixel_values in, ImageNet logits out.
   const runs = sectionTitled(details, 'Session runs').locator('.run');

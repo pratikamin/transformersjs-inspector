@@ -72,6 +72,8 @@ export const PANEL_CSS = `
 .panel.closed { width: auto !important; height: auto !important; }
 .panel.closed .body { display: none; }
 .panel.closed .grip { display: none; }
+/* The view control only matters for expanded rows; hidden while collapsed so the badge stays compact. */
+.panel.closed .seg { display: none; }
 
 /* Resize grip: a 16px touch-friendly square on the corner opposite the anchor, above the header. */
 .grip {
@@ -133,6 +135,19 @@ export const PANEL_CSS = `
 .btn:hover { background: var(--tjsi-bg-alt); }
 .btn:disabled { opacity: 0.55; cursor: progress; }
 .chev { width: 1em; text-align: center; color: var(--tjsi-muted); }
+/* Simple / Detail segmented control: two buttons in one bordered pill, the active one filled with the accent. */
+.seg { display: inline-flex; border: 1px solid var(--tjsi-border); border-radius: 4px; overflow: hidden; }
+.seg-btn {
+  font: inherit;
+  padding: 2px 8px;
+  border: none;
+  background: var(--tjsi-bg);
+  color: var(--tjsi-muted);
+  cursor: pointer;
+}
+.seg-btn + .seg-btn { border-left: 1px solid var(--tjsi-border); }
+.seg-btn:hover { background: var(--tjsi-bg-alt); color: var(--tjsi-fg); }
+.seg-btn.active { background: var(--tjsi-accent); color: var(--tjsi-on-accent); }
 
 .body { flex: 1 1 auto; min-height: 0; overflow: auto; }
 .rows { list-style: none; margin: 0; padding: 0; }
@@ -202,6 +217,24 @@ pre {
 .chip-id { font-size: 10px; color: var(--tjsi-muted); }
 .chip-str { white-space: pre; }
 .ws { background: var(--tjsi-ws); border-radius: 2px; }
+/* Simple view: text-only chips, the one-line Model description, and the per-step alternatives list. */
+.chip.chip-simple { flex-direction: row; padding: 1px 6px; }
+.model-line { color: var(--tjsi-fg); }
+.alts {
+  list-style: none;
+  margin: 0 0 6px 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: max-content 5.5em minmax(4em, 240px);
+  column-gap: 8px;
+  row-gap: 2px;
+  align-items: center;
+}
+.alt { display: contents; }
+.alt-tok { white-space: pre; padding: 0 4px; border-radius: 2px; }
+.alt.picked .alt-tok { font-weight: 600; background: var(--tjsi-picked); }
+.alt-pct { text-align: right; font-variant-numeric: tabular-nums; color: var(--tjsi-muted); }
+.result-text { white-space: pre-wrap; }
 
 .run { margin-bottom: 8px; }
 table.tensors, table.topk { width: 100%; border-collapse: collapse; background: var(--tjsi-bg); }

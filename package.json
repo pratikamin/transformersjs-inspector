@@ -1,6 +1,6 @@
 {
   "name": "transformersjs-inspector",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "A Network-tab-style inspector for Transformers.js pipelines: sessions, tokenizer, per-step logits, results.",
   "license": "MIT",
   "author": "Pratik Amin",

@@ -8,6 +8,11 @@
  * update of an expanded call, so values loaded into a still-running call disappear and need
  * another click. **Replay** is the other request the panel issues: `bus.request('replay',
  * { callId })`, answered where `attach()` ran; the new row arrives as ordinary events.
+ *
+ * The header's Simple / Detail control (`data-action="view"`, `data-view` per segment) sets
+ * the render mode of every expanded row (see `renderRowDetails`); `setView` re-renders the
+ * open details in place, keeping them expanded and the reducer state untouched. Nothing is
+ * persisted: the host picks the start mode through `PanelOptions.view`.
  */
 import type { InspectorBus } from '../bus';
 import type { InspectorEvent, TensorData } from '../events';
@@ -20,6 +25,7 @@ import { renderRowDetails, renderRowSummary, renderTensorImage, renderTensorValu
 import { DEFAULT_DOCK, fitElement, watchViewport } from './fit';
 import type { Dock } from './fit';
 import type { RenderContext } from './render';
+import type { ViewMode } from './summary';
 import { installResize } from './resize';
 import { adoptStyles } from './styles';
 
@@ -42,6 +48,12 @@ export interface PanelOptions {
    * `data-dock` on the host element.
    */
   dock?: Dock;
+  /**
+   * `'simple'` (default) summarises each expanded call (text-only token chips, one `Model`
+   * line, top-5 alternatives per step, a readable result); `'detail'` shows every tensor table,
+   * the full top-k tables and the JSON result. Switchable from the header.
+   */
+  view?: ViewMode;
 }
 
 export interface InspectorPanel {
@@ -52,11 +64,17 @@ export interface InspectorPanel {
   isOpen(): boolean;
   /** Forgets every call and empties the list; the bus history is left alone. */
   clear(): void;
+  /** Switches the render mode; expanded rows are re-rendered in place. */
+  setView(view: ViewMode): void;
+  getView(): ViewMode;
   /** Unsubscribes from the bus and removes the host element. */
   destroy(): void;
 }
 
 const DEFAULT_TITLE = 'Transformers.js inspector';
+export const DEFAULT_VIEW: ViewMode = 'simple';
+const VIEWS: readonly ViewMode[] = ['simple', 'detail'];
+const isViewMode = (v: unknown): v is ViewMode => (VIEWS as readonly unknown[]).includes(v);
 /** How long the header's export status text ("exported" / "copied" / "failed") stays visible. */
 export const STATUS_FLASH_MS = 2000;
 
@@ -80,6 +98,18 @@ export function mountPanel(bus: InspectorBus, opts: PanelOptions = {}): Inspecto
   const grip = h('div', { class: 'grip', data: { grip: '' }, title: 'drag to resize · double-click to reset' });
   // Short-lived status text next to the header buttons (see `flash`).
   const status = h('span', { class: 'status', data: { exportStatus: '' } });
+  let view: ViewMode = isViewMode(opts.view) ? opts.view : DEFAULT_VIEW;
+  const segments = new Map<ViewMode, HTMLButtonElement>(
+    VIEWS.map((mode) => [mode, h('button', { class: 'seg-btn', data: { action: 'view', view: mode }, aria: { pressed: 'false' }, title: `${mode} view` }, mode === 'simple' ? 'Simple' : 'Detail')]),
+  );
+  const segmented = h('div', { class: 'seg', role: 'group', aria: { label: 'view' }, data: { viewControl: '' } }, [...segments.values()]);
+  const markView = (): void => {
+    for (const [mode, button] of segments) {
+      button.classList.toggle('active', mode === view);
+      button.setAttribute('aria-pressed', mode === view ? 'true' : 'false');
+    }
+  };
+  markView();
   const root = h(
     'div',
     { class: 'panel closed', data: { panel: '' } },
@@ -91,6 +121,7 @@ export function mountPanel(bus: InspectorBus, opts: PanelOptions = {}): Inspecto
       badge,
       h('span', { class: 'spacer' }),
       status,
+      segmented,
       h('button', { class: 'btn', data: { action: 'export' }, title: 'download the event history as JSON · shift-click to copy it instead' }, 'Export'),
       h('button', { class: 'btn', data: { action: 'clear' } }, 'Clear'),
     ),
@@ -135,7 +166,18 @@ export function mountPanel(bus: InspectorBus, opts: PanelOptions = {}): Inspecto
     refs.summary.replaceWith(summary);
     refs.summary = summary;
     if (refs.details) {
-      const details = renderRowDetails(call, ctx);
+      const details = renderRowDetails(call, ctx, view);
+      refs.details.replaceWith(details);
+      refs.details = details;
+    }
+  };
+
+  /** Re-renders every expanded row's details in the current view; the rows stay expanded. */
+  const rerenderDetails = (): void => {
+    for (const [id, refs] of rendered) {
+      const call = state.byId.get(id);
+      if (!refs.details || !call) continue;
+      const details = renderRowDetails(call, ctx, view);
       refs.details.replaceWith(details);
       refs.details = details;
     }
@@ -177,7 +219,7 @@ export function mountPanel(bus: InspectorBus, opts: PanelOptions = {}): Inspecto
       refs.details = null;
       refs.row.classList.remove('expanded');
     } else {
-      refs.details = renderRowDetails(call, ctx);
+      refs.details = renderRowDetails(call, ctx, view);
       refs.row.appendChild(refs.details);
       refs.row.classList.add('expanded');
     }
@@ -279,6 +321,11 @@ export function mountPanel(bus: InspectorBus, opts: PanelOptions = {}): Inspecto
       case 'export':
         void doExport(e instanceof MouseEvent && e.shiftKey);
         break;
+      case 'view': {
+        const mode = actionEl.dataset.view;
+        if (isViewMode(mode)) panel.setView(mode);
+        break;
+      }
       case 'replay': {
         const id = actionEl.dataset.callId;
         if (id !== undefined && actionEl instanceof HTMLButtonElement && !actionEl.disabled) void replayCall(id, actionEl);
@@ -326,6 +373,14 @@ export function mountPanel(bus: InspectorBus, opts: PanelOptions = {}): Inspecto
       rows.textContent = '';
       updateBadge();
     },
+    setView(next) {
+      if (!isViewMode(next) || next === view || destroyed) return;
+      view = next;
+      markView();
+      rerenderDetails();
+      fit();
+    },
+    getView: () => view,
     destroy() {
       if (destroyed) return;
       destroyed = true;

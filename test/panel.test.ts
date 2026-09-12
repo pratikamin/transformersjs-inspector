@@ -13,7 +13,14 @@ import type { InspectorExport } from '../src/export';
 import { FAKE_THUMB, fixtureEvents, fixtureMediaEvents } from './fakes';
 
 const panels: InspectorPanel[] = [];
+/** Mounts in the detail view (the tests below assert the tensor and top-k tables); the view tests pass their own `view`. */
 const mount = (bus: InspectorBus, opts?: Parameters<typeof mountPanel>[1]): InspectorPanel => {
+  const p = mountPanel(bus, { view: 'detail', ...opts });
+  panels.push(p);
+  return p;
+};
+/** Mounts with the defaults exactly as a host would (`view` unset). */
+const mountDefault = (bus: InspectorBus, opts?: Parameters<typeof mountPanel>[1]): InspectorPanel => {
   const p = mountPanel(bus, opts);
   panels.push(p);
   return p;
@@ -611,6 +618,227 @@ describe('mountPanel', () => {
     expect(rowsOf(p)).toHaveLength(0);
     expect(badgeOf(p)).toBe('0');
     p.destroy(); // idempotent
+  });
+});
+
+describe('view toggle (0.3.0)', () => {
+  const segment = (p: InspectorPanel, view: string): HTMLButtonElement | null => p.shadow.querySelector<HTMLButtonElement>(`[data-action="view"][data-view="${view}"]`);
+  const modelLine = (p: InspectorPanel, id: string): string | null | undefined => p.shadow.querySelector(`[data-details="${id}"] [data-model-line]`)?.textContent;
+
+  test('the header has a two-segment control before Export; simple is the default and marked active', () => {
+    const p = mountDefault(new InspectorBus(), { open: true });
+    expect(p.getView()).toBe('simple');
+    const control = p.shadow.querySelector('[data-view-control]');
+    expect(control?.getAttribute('role')).toBe('group');
+    expect(control?.nextElementSibling?.getAttribute('data-action')).toBe('export');
+    const simple = segment(p, 'simple');
+    const detail = segment(p, 'detail');
+    expect(simple?.textContent).toBe('Simple');
+    expect(detail?.textContent).toBe('Detail');
+    expect(simple?.classList.contains('active')).toBe(true);
+    expect(simple?.getAttribute('aria-pressed')).toBe('true');
+    expect(detail?.classList.contains('active')).toBe(false);
+    expect(detail?.getAttribute('aria-pressed')).toBe('false');
+    expect(p.shadow.querySelectorAll('.seg-btn')).toHaveLength(2);
+  });
+
+  test('default view is simple: expanded c1 shows the Model line, text-only chips, the embedding line and no tensor rows', () => {
+    const bus = new InspectorBus();
+    const p = mountDefault(bus, { open: true });
+    for (const ev of fixtureEvents()) bus.emit(ev);
+    click(rowsOf(p)[0]);
+    const details = p.shadow.querySelector<HTMLElement>('[data-details="c1"]');
+    expect(details?.dataset.view).toBe('simple');
+    const headings = [...(details?.querySelectorAll('h3') ?? [])].map((x) => x.textContent);
+    expect(headings).toEqual(['Input', 'Tokenizer', 'Model', 'Result']);
+    expect(details?.querySelectorAll('[data-tensor]')).toHaveLength(0);
+    expect(details?.querySelectorAll('table')).toHaveLength(0);
+    expect(details?.querySelectorAll('button[data-action="load"], button[data-action="preview"]')).toHaveLength(0);
+    expect(modelLine(p, 'c1')).toBe('1 model run · 12.7 ms');
+    // Chips: decoded text only, id and raw in the title; the meta line keeps the count and time.
+    const chips = [...(details?.querySelectorAll<HTMLElement>('.chip') ?? [])];
+    expect(chips).toHaveLength(7);
+    expect(chips.every((c) => c.classList.contains('chip-simple'))).toBe(true);
+    expect(chips[0].querySelector('.chip-id')).toBeNull();
+    expect(chips[0].textContent).toBe('[CLS]');
+    expect(chips[0].getAttribute('title')).toBe('id 101 · raw [CLS]');
+    expect(details?.querySelector('.tokenize .meta')?.textContent).toBe('7 tokens · 1 row · 0.40 ms');
+    // Result: the $tensor marker as one line, no JSON pre.
+    const result = details?.querySelector<HTMLElement>('[data-result-summary]');
+    expect(result?.dataset.resultSummary).toBe('tensor');
+    expect(result?.textContent).toBe('embedding · float32 [7, 384] · 2688 values');
+    expect(details?.querySelector('section:last-child pre')).toBeNull();
+    // Replay stays in both modes.
+    expect(rowsOf(p)[0].querySelector('button[data-action="replay"]')).not.toBeNull();
+  });
+
+  test('switching to detail via the control shows the tensor rows; switching back re-renders without collapsing, and the reducer state survives', () => {
+    const bus = new InspectorBus();
+    const p = mountDefault(bus, { open: true });
+    for (const ev of fixtureEvents()) bus.emit(ev);
+    click(rowsOf(p)[0]);
+    click(rowsOf(p)[1]);
+    expect(p.shadow.querySelectorAll('[data-details]')).toHaveLength(2);
+    expect(p.isOpen()).toBe(true);
+
+    click(segment(p, 'detail'));
+    expect(p.getView()).toBe('detail');
+    expect(p.isOpen()).toBe(true); // the header click did not toggle the panel
+    expect(segment(p, 'detail')?.classList.contains('active')).toBe(true);
+    expect(segment(p, 'detail')?.getAttribute('aria-pressed')).toBe('true');
+    expect(segment(p, 'simple')?.getAttribute('aria-pressed')).toBe('false');
+    const rowsExpanded = [...p.shadow.querySelectorAll('.row.expanded')];
+    expect(rowsExpanded).toHaveLength(2);
+    const c1 = p.shadow.querySelector<HTMLElement>('[data-details="c1"]');
+    expect(c1?.dataset.view).toBe('detail');
+    expect(c1?.querySelectorAll('[data-tensor]').length).toBeGreaterThanOrEqual(4);
+    expect(c1?.querySelector('[data-tensor="t4"] button[data-action="load"]')?.textContent).toBe('Load values');
+    expect(p.shadow.querySelectorAll('[data-details="c2"] table.topk')).toHaveLength(3);
+    expect(p.shadow.querySelector('[data-details="c2"] .step-head')?.textContent).toContain('token 1996 "the"');
+
+    click(segment(p, 'simple'));
+    expect(p.getView()).toBe('simple');
+    expect(p.shadow.querySelectorAll('[data-details]')).toHaveLength(2);
+    expect(p.shadow.querySelectorAll('.row.expanded')).toHaveLength(2);
+    expect(p.shadow.querySelectorAll('[data-tensor]')).toHaveLength(0);
+    expect(modelLine(p, 'c1')).toBe('1 model run · 12.7 ms');
+    // A same-mode click is a no-op; rows and badge are untouched throughout.
+    click(segment(p, 'simple'));
+    expect(p.getView()).toBe('simple');
+    expect(rowsOf(p)).toHaveLength(2);
+    expect(badgeOf(p)).toBe('2');
+    // Collapsing still works after the round trip.
+    click(rowsOf(p)[0]);
+    expect(p.shadow.querySelector('[data-details="c1"]')).toBeNull();
+  });
+
+  test('setView() from the API re-renders like the control; an unknown mode is ignored', () => {
+    const bus = new InspectorBus();
+    const p = mountDefault(bus, { open: true });
+    for (const ev of fixtureEvents()) bus.emit(ev);
+    click(rowsOf(p)[0]);
+    p.setView('detail');
+    expect(segment(p, 'detail')?.classList.contains('active')).toBe(true);
+    expect(p.shadow.querySelectorAll('[data-details="c1"] [data-tensor]').length).toBeGreaterThan(0);
+    p.setView('bogus' as 'simple');
+    expect(p.getView()).toBe('detail');
+    p.setView('simple');
+    expect(p.shadow.querySelectorAll('[data-details="c1"] [data-tensor]')).toHaveLength(0);
+  });
+
+  test('{ view: "detail" } starts in detail; an unknown option value falls back to simple', () => {
+    const bus = new InspectorBus();
+    const p = mountDefault(bus, { open: true, view: 'detail' });
+    for (const ev of fixtureEvents()) bus.emit(ev);
+    expect(p.getView()).toBe('detail');
+    expect(segment(p, 'detail')?.getAttribute('aria-pressed')).toBe('true');
+    click(rowsOf(p)[0]);
+    expect(p.shadow.querySelectorAll('[data-details="c1"] [data-tensor]').length).toBeGreaterThanOrEqual(4);
+    const q = mountDefault(new InspectorBus(), { view: 'other' as 'simple' });
+    expect(q.getView()).toBe('simple');
+  });
+
+  test('generation call in simple mode: 3 step lines with at most 5 alternatives each, percent text, bars, and the text result', () => {
+    const bus = new InspectorBus();
+    const p = mountDefault(bus, { open: true });
+    for (const ev of fixtureEvents()) bus.emit(ev);
+    click(rowsOf(p)[1]);
+    const details = p.shadow.querySelector<HTMLElement>('[data-details="c2"]');
+    const headings = [...(details?.querySelectorAll('h3') ?? [])].map((x) => x.textContent);
+    expect(headings).toEqual(['Input', 'Tokenizer', 'Model', 'Generation', 'Result']);
+    expect(modelLine(p, 'c2')).toBe('3 model runs · 1 prefill + 2 decode · 18.3 ms');
+    expect(details?.querySelectorAll('table')).toHaveLength(0);
+
+    const steps = [...(details?.querySelectorAll<HTMLElement>('.step') ?? [])];
+    expect(steps).toHaveLength(3);
+    expect(steps.map((s) => s.querySelector('.step-head')?.textContent)).toEqual(['step 0 → "the"', 'step 1 → "quick"', 'step 2 → "brown"']);
+    for (const step of steps) {
+      const alts = [...step.querySelectorAll<HTMLElement>('.alt')];
+      expect(alts.length).toBeGreaterThan(0);
+      expect(alts.length).toBeLessThanOrEqual(5);
+      for (const alt of alts) {
+        expect(alt.querySelector('.alt-pct')?.textContent).toMatch(/%$/);
+        expect(alt.querySelector('.bar')).not.toBeNull();
+      }
+      expect(step.querySelectorAll('.alt.picked')).toHaveLength(1);
+    }
+    const first = steps[0].querySelector<HTMLElement>('.alt');
+    expect(first?.dataset.token).toBe('1996');
+    expect(first?.querySelector('.alt-tok')?.textContent).toBe('the');
+    expect(first?.querySelector('.alt-tok')?.getAttribute('title')).toBe('the');
+    expect(first?.querySelector('.alt-pct')?.textContent).toBe('99.7%');
+    expect(first?.querySelector<HTMLElement>('.bar')?.style.width).toBe('99.7%');
+    const pcts = [...steps[0].querySelectorAll('.alt-pct')].map((e) => e.textContent);
+    expect(pcts).toEqual(['99.7%', '0.12%', '0.06%', '0.04%', '0.03%']);
+
+    const result = details?.querySelector<HTMLElement>('[data-result-summary]');
+    expect(result?.dataset.resultSummary).toBe('text');
+    expect(result?.textContent).toBe('hi the quick brown');
+  });
+
+  test('simple mode renders the decoded token with the whitespace marker and keeps raw on hover; tiny probabilities read <0.01%', () => {
+    const bus = new InspectorBus();
+    const p = mountDefault(bus, { open: true });
+    const events: InspectorEvent[] = [
+      { type: 'call:start', callId: 'c9', label: 'text-generation', task: 'text-generation', input: { kind: 'text', text: 'x' }, t: 1 },
+      {
+        type: 'logits',
+        callId: 'c9',
+        step: 0,
+        vocab: 3,
+        topK: [
+          { id: 1, token: ' film', logit: 2, prob: 0.5, raw: 'Ġfilm' },
+          { id: 2, token: 'ing', logit: 1, prob: 0.00005, raw: '##ing' },
+          { id: 3, token: null, logit: 0, prob: 0.0001, raw: null },
+        ],
+        tensorId: null,
+        t: 2,
+      },
+      { type: 'token', callId: 'c9', step: 0, ids: [1], text: ' film', raw: 'Ġfilm', t: 3 },
+      { type: 'result', callId: 'c9', result: { generated_text: 'x film' }, ms: 5, error: null, t: 4 },
+    ];
+    for (const ev of events) bus.emit(ev);
+    click(rowsOf(p)[0]);
+    const alts = [...p.shadow.querySelectorAll<HTMLElement>('[data-details="c9"] .alt')];
+    expect(alts).toHaveLength(3);
+    expect(alts[0].querySelector('.alt-tok')?.getAttribute('title')).toBe('Ġfilm');
+    expect(alts[0].querySelector('.alt-tok span.ws')?.textContent).toBe(' ');
+    expect(alts[0].querySelector('.alt-tok')?.textContent).toBe(' film');
+    expect(alts[1].querySelector('.alt-pct')?.textContent).toBe('<0.01%');
+    expect(alts[2].querySelector('.alt-tok')?.textContent).toBe('∅');
+    expect(alts[2].querySelector('.alt-pct')?.textContent).toBe('0.01%');
+    expect(p.shadow.querySelector('[data-details="c9"] .step-head')?.textContent).toBe('step 0 → " film"');
+    expect(p.shadow.querySelector('[data-details="c9"] [data-model-line]')).toBeNull(); // no runs: no Model section
+  });
+
+  test('simple results: labels as label/percent rows (media fixtures), ASR text, and JSON for anything else', () => {
+    const bus = new InspectorBus();
+    const p = mountDefault(bus, { open: true });
+    for (const ev of fixtureMediaEvents()) bus.emit(ev);
+    bus.emit({ type: 'call:start', callId: 'c5', label: 'other', task: null, input: { kind: 'other', json: 1 }, t: 5000 });
+    bus.emit({ type: 'result', callId: 'c5', result: { scores: [1, 2] }, ms: 1, error: null, t: 5001 });
+    const [c3, c4, c5] = rowsOf(p);
+    click(c3);
+    click(c4);
+    click(c5);
+    expect(p.shadow.querySelector<HTMLElement>('[data-details="c3"] [data-result-summary]')?.textContent).toBe('hello');
+    expect(p.shadow.querySelector<HTMLElement>('[data-details="c3"] svg.wave')).not.toBeNull();
+    const labels = [...p.shadow.querySelectorAll<HTMLElement>('[data-details="c4"] [data-result-summary="labels"] .alt')];
+    expect(labels.map((l) => l.textContent)).toEqual(['tabby61.0%', 'tiger cat20.0%', 'Egyptian cat7.0%']);
+    expect(labels[0].querySelector<HTMLElement>('.bar')?.style.width).toBe('61.0%');
+    expect(p.shadow.querySelector<HTMLElement>('[data-details="c4"] img.thumb')).not.toBeNull();
+    expect(p.shadow.querySelectorAll('[data-details="c4"] [data-tensor]')).toHaveLength(0);
+    const json = p.shadow.querySelector<HTMLElement>('[data-details="c5"] [data-result-summary]');
+    expect(json?.dataset.resultSummary).toBe('json');
+    expect(json?.tagName).toBe('PRE');
+    expect(json?.textContent).toContain('"scores"');
+  });
+
+  test('the simple-view rules colour through tokens only and the control is styled', () => {
+    for (const rule of ['.seg', '.seg-btn.active', '.chip.chip-simple', '.alts', '.alt.picked .alt-tok', '.alt-pct', '.model-line']) expect(PANEL_CSS).toContain(rule);
+    expect(PANEL_CSS).toMatch(/\.seg-btn\.active \{[^}]*var\(--tjsi-accent\)/);
+    expect(PANEL_CSS).toContain('.panel.closed .seg { display: none; }');
+    expect(PANEL_CSS).toMatch(/\.alt\.picked \.alt-tok \{[^}]*var\(--tjsi-picked\)/);
   });
 });
 

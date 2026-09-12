@@ -1,6 +1,6 @@
 /**
  * Tiny DOM helpers for the panel. `h()` only ever sets `textContent`, `className`,
- * `dataset` entries and a few whitelisted properties: no markup strings and no inline
+ * `dataset` entries, `role`/`aria-*` attributes and a few whitelisted properties: no markup strings and no inline
  * style attributes, so the panel works under a strict CSP and never interprets HTML.
  * `svg()` builds SVG the same way through `createElementNS` + `setAttribute`, and the only
  * `src` ever written is a `data:image/` URL on an `<img>`, so the panel never fetches.
@@ -22,6 +22,10 @@ export interface Attrs {
   /** Pixel size, applied only to `<img>` and `<canvas>`. */
   width?: number;
   height?: number;
+  /** ARIA `role`, set as an attribute. */
+  role?: string;
+  /** `aria-*` entries (`{ pressed: 'true' }` → `aria-pressed="true"`), set as attributes. */
+  aria?: Record<string, string>;
 }
 
 const DATA_IMAGE = 'data:image/';
@@ -52,6 +56,10 @@ export function h<K extends keyof HTMLElementTagNameMap>(tag: K, attrs?: Attrs |
       for (const [k, v] of Object.entries(attrs.data)) el.dataset[k] = String(v);
     }
     if (attrs.title !== undefined) el.title = attrs.title;
+    if (attrs.role !== undefined) el.setAttribute('role', attrs.role);
+    if (attrs.aria) {
+      for (const [k, v] of Object.entries(attrs.aria)) el.setAttribute(`aria-${k}`, v);
+    }
     if (attrs.hidden !== undefined) el.hidden = attrs.hidden;
     if (attrs.colSpan !== undefined && el instanceof HTMLTableCellElement) el.colSpan = attrs.colSpan;
     if (attrs.type !== undefined && el instanceof HTMLButtonElement) el.type = attrs.type;

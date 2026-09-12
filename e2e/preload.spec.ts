@@ -7,7 +7,7 @@
  * Panel selectors resolve through the open shadow root of `[data-tjsi-panel]`.
  */
 import type { Locator } from '@playwright/test';
-import { expect, test, TASK_TIMEOUT } from './fixtures';
+import { TASK_TIMEOUT, expect, setView, test } from './fixtures';
 
 /**
  * The browser hands `InferenceSession.create` a `Uint8Array`, never a path, so `nameFor`
@@ -61,6 +61,7 @@ test('preload: an attach()-free host page yields one direct session row with las
   await expect(rows).toHaveCount(1);
   await expect(rows.first().locator('.label')).toHaveText(ROW_LABEL);
 
+  await setView(panel, 'detail'); // tensor rows are detail-view content
   await rows.first().click();
   const details = panel.locator('[data-details]');
   await expect(details).toHaveCount(1);

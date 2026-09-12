@@ -7,20 +7,22 @@
  * open shadow root of `[data-tjsi-panel]`.
  */
 import type { Locator } from '@playwright/test';
-import { expect, runTask, test } from './fixtures';
+import { expect, runTask, setView, test } from './fixtures';
 
 const PROMPT = 'hi';
 /** `demo/main.ts` runs text-generation with `{ max_new_tokens: 3 }`. */
 const MAX_NEW_TOKENS = 3;
 /** The wrapper's default `topK`. */
 const TOP_K = 10;
+/** Alternatives per step in the simple view. */
+const SIMPLE_TOP_N = 5;
 
 /** `<section class="section">` whose `<h3>` is exactly `title`. */
 function sectionTitled(details: Locator, title: string): Locator {
   return details.locator('section.section').filter({ has: details.page().locator('h3', { hasText: new RegExp(`^${title}$`) }) });
 }
 
-test('text generation: >= 3 session runs, 3 steps of sorted top-k with a token each, result equals the page output', async ({ page }) => {
+test('text generation: simple step lines first, then >= 3 session runs, 3 steps of sorted top-k with a token each, result equals the page output', async ({ page }) => {
   await page.goto('/');
   const section = await runTask(page, 'text-generation', PROMPT);
   const output = (await section.locator('[data-output]').textContent()) ?? '';
@@ -37,6 +39,25 @@ test('text generation: >= 3 session runs, 3 steps of sorted top-k with a token e
   await rows.first().click();
   const details = panel.locator('[data-details]');
   await expect(details).toHaveCount(1);
+
+  // Simple view (the default): the Model line counts the runs with the first one as prefill, each
+  // step is `step n → "text"` with at most 5 alternatives as percentages, and the result is the text.
+  await expect(details).toHaveAttribute('data-view', 'simple');
+  await expect(sectionTitled(details, 'Model').locator('[data-model-line]')).toHaveText(/^\d+ model runs · 1 prefill \+ \d+ decode · \d+(\.\d+)? (ms|s)$/);
+  await expect(details.locator('table')).toHaveCount(0);
+  const simpleSteps = sectionTitled(details, 'Generation').locator('.step');
+  await expect(simpleSteps).toHaveCount(MAX_NEW_TOKENS);
+  for (let i = 0; i < MAX_NEW_TOKENS; i++) {
+    await expect(simpleSteps.nth(i).locator('.step-head')).toHaveText(new RegExp(`^step ${i} → `));
+    const alts = simpleSteps.nth(i).locator('.alt');
+    await expect(alts).toHaveCount(SIMPLE_TOP_N);
+    await expect(simpleSteps.nth(i).locator('.alt.picked')).toHaveCount(1);
+    for (const pct of await alts.locator('.alt-pct').allTextContents()) expect(pct).toMatch(/^(<0\.01|\d+(\.\d+)?)%$/);
+  }
+  await expect(sectionTitled(details, 'Result').locator('[data-result-summary="text"]')).toHaveText(output);
+
+  await setView(panel, 'detail');
+  await expect(details).toHaveAttribute('data-view', 'detail');
 
   // Session runs: one prefill plus one decode per further token (the spike saw 3 for 3 tokens).
   const runs = sectionTitled(details, 'Session runs').locator('.run');

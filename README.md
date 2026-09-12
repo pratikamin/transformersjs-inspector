@@ -11,7 +11,7 @@ generation, and the pipeline's decoded result.
 Zero runtime dependencies. Nothing on disk is patched; every hook is a runtime wrap of a
 method on an instance Transformers.js exposes. Nothing leaves the tab.
 
-**Status:** v0.2.0, verified against `@huggingface/transformers` 4.2.0 (Transformers.js
+**Status:** v0.3.0, verified against `@huggingface/transformers` 4.2.0 (Transformers.js
 4.x only). Not yet published to npm; the CDN URLs below resolve once it is.
 
 ## 30-second usage
@@ -43,7 +43,7 @@ Script tag, with Transformers.js from a CDN:
 ```html
 <script type="module">
   import { pipeline } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.2.0';
-  import { attach } from 'https://cdn.jsdelivr.net/npm/transformersjs-inspector@0.2.0/dist/index.js';
+  import { attach } from 'https://cdn.jsdelivr.net/npm/transformersjs-inspector@0.3.0/dist/index.js';
 
   const pipe = await pipeline('text-generation', 'onnx-community/tiny-random-LlamaForCausalLM-ONNX');
   attach(pipe);
@@ -58,9 +58,19 @@ generation wrappers are added when `pipe.tokenizer` and `model.generate` exist.
 
 ## What the panel shows
 
-Feature extraction (`Xenova/all-MiniLM-L6-v2`): the tokenizer chips, the session run with
-its three `int64 [1, 7]` inputs and the `float32 [1, 7, 384]` output, and the values of
-`last_hidden_state` after clicking **Load values**.
+The panel has two views, switched by the **Simple / Detail** control in the header (or
+`PanelOptions.view`; the demo takes `?view=detail`). Every expanded row re-renders in the new
+view without collapsing. **Simple** is the default: text generation
+(`onnx-community/tiny-random-LlamaForCausalLM-ONNX`, `max_new_tokens: 3`) reads as the prompt,
+the tokens, one `Model` line counting the session runs, one `step n → "token"` line per
+generated token with its top-5 alternatives as percentages, and the decoded result.
+
+![Panel: text generation in the simple view](docs/img/panel-simple.png)
+
+**Detail** is the full rendering. Feature extraction (`Xenova/all-MiniLM-L6-v2`): the
+tokenizer chips with their ids, the session run with its three `int64 [1, 7]` inputs and the
+`float32 [1, 7, 384]` output, and the values of `last_hidden_state` after clicking
+**Load values**.
 
 ![Panel: feature extraction with tokens, session tensors and loaded values](docs/img/panel-embedding.png)
 
@@ -79,28 +89,37 @@ Dark theme: the panel follows `prefers-color-scheme` by default (`theme: 'auto'`
 How it is organised:
 
 - **One row per pipeline call**: sequence number, label (`task · model_type` by default),
-  an excerpt of the input, wall time, status dot. Click to expand. The header badge counts
-  calls; while the panel is collapsed only the badge updates.
-- **Input**: text (truncated to 2000 chars) or texts; an image shows a thumbnail and its
-  size and channels, audio shows a waveform with its sample count, rate and duration (see
-  "Media previews" below).
-- **Tokenizer**: every `tokenizer(text)` call during the row, as `id / token` chips (decoded
-  text, with leading or trailing whitespace tinted; the vocab string on hover).
-- **Session runs**: one block per `session.run` (a decoder-only model produces one per
+  an excerpt of the input, wall time, status dot, and a **Replay** button (both views). Click
+  to expand. The header badge counts calls; while the panel is collapsed only the badge updates.
+- **Input** (both views): text (truncated to 2000 chars) or texts; an image shows a thumbnail
+  and its size and channels, audio shows a waveform with its sample count, rate and duration
+  (see "Media previews" below).
+- **Tokenizer**: every `tokenizer(text)` call during the row, as chips of the decoded text
+  (leading or trailing whitespace tinted). Detail chips carry the id above the text; simple
+  chips show the text alone, with the id and the vocab string on hover.
+- **Session runs** (detail): one block per `session.run` (a decoder-only model produces one per
   generated token), each with an Inputs and an Outputs table: `name`, `dtype`, `dims`,
   `location` (`cpu`, `gpu-buffer`, ...), `bytes`, and `head`, the first 8 values. Values
   are read eagerly only for CPU-resident tensors and only those 8.
-- **Load values**: fetches the full tensor by id through the bus from a byte-budgeted
+- **Model** (simple): the same runs as one line, `1 model run · 34 ms` or, for a generation
+  call, `3 model runs · 1 prefill + 2 decode · 870 ms` (the count, the sum of the run times,
+  and any run errors). No tensor tables and no **Load values** / **Preview** buttons; switch
+  to Detail for those.
+- **Load values** (detail): fetches the full tensor by id through the bus from a byte-budgeted
   store (64 MiB, LRU) and renders up to 4096 values. A GPU-resident tensor is copied back
   only when you click; a tensor evicted from the store reports `evicted`.
-- **Preview**: on tensor rows whose dims look like an image, fetches the same values and
-  draws them as one (see "Media previews").
-- **Generation**: per step, the token id and string that was picked and a top-k table
-  (`token`, `id`, `logit`, `prob`, 10 rows by default) taken from a logits processor, so it
-  reflects what the sampler saw after repetition penalties and the like. Raw logits are still
-  on the session run row.
-- **Result**: the pipeline's return value as JSON, with tensors replaced by `$tensor`
-  markers and listed in a table above it.
+- **Preview** (detail): on tensor rows whose dims look like an image, fetches the same values
+  and draws them as one (see "Media previews").
+- **Generation**: per step, the token that was picked and the top-k taken from a logits
+  processor, so it reflects what the sampler saw after repetition penalties and the like. In
+  detail: the token id and string and a table (`token`, `id`, `logit`, `prob`, 10 rows by
+  default). In simple: `step 0 → "the"` and the top 5 alternatives as `token  12.4%` with a
+  probability bar (`<0.01%` below that). Raw logits are still on the session run row.
+- **Result**: in detail, the pipeline's return value as JSON, with tensors replaced by
+  `$tensor` markers and listed in a table above it. In simple, a readable summary
+  (`summarizeResult`, also exported): `generated_text` / `text` results and strings as the
+  text, `{ label, score }` lists as `label  93.2%` rows in the pipeline's order, a single
+  `$tensor` as `embedding · float32 · 384 values`, and anything else as the JSON.
 
 Rows that arrive without a pipeline call (the preload path, or a direct `model.sessions`
 call) are shown as `direct · <session>` rows with only the session run.
@@ -184,7 +203,7 @@ The file shape (`InspectorExport`):
 
 ```jsonc
 {
-  "version": "0.2.0",                  // library version that wrote it
+  "version": "0.3.0",                  // library version that wrote it
   "exportedAt": "2026-09-11T09:05:07.123Z",
   "events": [ /* InspectorEvent[], exactly as emitted, oldest first */ ]
 }
@@ -230,7 +249,7 @@ evaluates, whose `InferenceSession.create` wraps every session's `run`. Load it 
 script **before** the script that loads Transformers.js:
 
 ```html
-<script type="module" src="https://cdn.jsdelivr.net/npm/transformersjs-inspector@0.2.0/dist/preload.js"></script>
+<script type="module" src="https://cdn.jsdelivr.net/npm/transformersjs-inspector@0.3.0/dist/preload.js"></script>
 <script type="module">
   import { pipeline } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.2.0';
   const pipe = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', { device: 'auto' });
@@ -334,6 +353,7 @@ show the full wiring.
 | `maxCalls` | `number` | `200` | Rows kept; the oldest are dropped beyond this. |
 | `theme` | `'auto' \| 'light' \| 'dark'` | `'auto'` | `auto` follows `prefers-color-scheme`; the others force a theme. Written to `data-theme` on the host `<div>`. |
 | `dock` | `'bottom-right' \| 'bottom-left' \| 'top-right' \| 'top-left'` | `'bottom-right'` | The viewport corner the panel is fixed to; it grows away from it and the resize grip sits on the opposite corner. Written to `data-dock` on the host `<div>`. |
+| `view` | `'simple' \| 'detail'` | `'simple'` | The render mode of expanded rows (see "What the panel shows"); the header control switches it and `panel.setView(view)` / `panel.getView()` do the same from code. Nothing is persisted: a new `mountPanel` starts at the option again. |
 
 The `AttachHandle` returned by `attach()` carries `bus`, `store` and `detach()`.
 
@@ -442,7 +462,7 @@ npm run lint         # ESLint
 npm run build        # dist/index.js, dist/preload.js, dist/worker.js + .d.ts
 npm run build:demo   # dist-demo/ (index, preload and worker pages)
 npm run e2e          # Playwright against the demo; e.g. npm run e2e -- e2e/demo.spec.ts
-npm run screenshots  # rewrites docs/img/panel-*.png from the demo (not part of `npm run e2e`)
+npm run screenshots  # rewrites the four docs/img/panel-*.png from the demo (not part of `npm run e2e`)
 ```
 
 `npm run e2e` starts the demo server itself (or reuses one on :5173). The Chromium profile
