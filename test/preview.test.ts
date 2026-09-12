@@ -448,11 +448,11 @@ describe('toCloneSafe', () => {
 
     const store = new TensorStore();
     const withStore = toCloneSafe([t, { logits: t }], store) as [{ $tensor: { id: string } }, { logits: { $tensor: { id: string; name: string } } }];
-    expect(withStore[0].$tensor.id).toBe('t1');
-    expect(withStore[1].logits.$tensor.id).toBe('t1');
+    expect(withStore[0].$tensor.id).toBe(`${store.id}/t1`);
+    expect(withStore[1].logits.$tensor.id).toBe(`${store.id}/t1`);
     expect(withStore[1].logits.$tensor.name).toBe('logits');
     expect(store.count).toBe(1);
-    expect(store.has('t1')).toBe(true);
+    expect(store.has(`${store.id}/t1`)).toBe(true);
     roundTrips(withStore);
   });
 

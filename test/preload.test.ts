@@ -99,11 +99,11 @@ describe('installPreload', () => {
 
     const [start] = find(bus, 'run:start');
     expect(start.callId).toBeNull();
-    expect(start.runId).toBe('r1');
+    expect(start.runId).toBe(`${bus.id}/r1`);
     expect(start.session).toBe('session#1 → last_hidden_state');
     expect(start.inputs.map((t) => t.name)).toEqual(['input_ids', 'attention_mask', 'token_type_ids']);
     const [end] = find(bus, 'run:end');
-    expect(end.runId).toBe('r1');
+    expect(end.runId).toBe(`${bus.id}/r1`);
     expect(end.session).toBe('session#1 → last_hidden_state');
     expect(end.error).toBeNull();
     expect(end.outputs.map((t) => [t.name, t.dims])).toEqual([['last_hidden_state', [1, IDS.length, 384]]]);

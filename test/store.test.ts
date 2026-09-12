@@ -23,12 +23,12 @@ describe('TensorStore', () => {
     const ids = [101, 1996, 7742, 5927, 2673, 1012, 102];
     const t = fakeTensor({ type: 'int64', dims: [1, 7], data: ids });
     const s = store.put(t, 'input_ids');
-    expect(s).toMatchObject({ id: 't1', name: 'input_ids', dtype: 'int64', dims: [1, 7], size: 7, bytes: 56, head: ids });
-    expect(store.has('t1')).toBe(true);
+    expect(s).toMatchObject({ id: `${store.id}/t1`, name: 'input_ids', dtype: 'int64', dims: [1, 7], size: 7, bytes: 56, head: ids });
+    expect(store.has(`${store.id}/t1`)).toBe(true);
     expect(store.count).toBe(1);
     expect(store.bytes).toBe(56);
-    const res = await store.read('t1');
-    expect(res).toMatchObject({ id: 't1', dtype: 'int64', dims: [1, 7] });
+    const res = await store.read(`${store.id}/t1`);
+    expect(res).toMatchObject({ id: `${store.id}/t1`, dtype: 'int64', dims: [1, 7] });
     const data = dataOf(res);
     expect(data).toBeInstanceOf(BigInt64Array);
     expect(Array.from(data as BigInt64Array, Number)).toEqual(ids);

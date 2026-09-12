@@ -40,7 +40,7 @@ describe('attach: encoder pipeline', () => {
     expect(types(bus)).toEqual(['call:start', 'tokenize', 'run:start', 'run:end', 'result']);
     const ids = new Set(bus.history.map((e) => e.callId));
     expect(ids.size).toBe(1);
-    expect([...ids][0]).toMatch(/^c\d+$/);
+    expect([...ids][0]).toMatch(/^b[^/]+\/c\d+$/);
 
     const [start] = find(bus, 'call:start');
     expect(start).toMatchObject({ label: 'feature-extraction · bert', task: 'feature-extraction', input: { kind: 'text', text: TEXT } });
@@ -141,9 +141,11 @@ describe('attach: encoder pipeline', () => {
     // c1/r1 and the panel reducer folded the second context's calls into the first's rows.
     const store = new TensorStore();
     const shared = new InspectorBus();
-    expect(new WrapContext(shared, store).nextCallId()).toBe('c1');
-    expect(new WrapContext(shared, store).nextCallId()).toBe('c2'); // a second context on the same bus continues
-    expect(new WrapContext(new InspectorBus(), store).nextCallId()).toBe('c1'); // a fresh bus starts over
+    expect(new WrapContext(shared, store).nextCallId()).toBe(`${shared.id}/c1`);
+    expect(new WrapContext(shared, store).nextCallId()).toBe(`${shared.id}/c2`); // a second context on the same bus continues
+    const other = new InspectorBus();
+    expect(new WrapContext(other, store).nextCallId()).toBe(`${other.id}/c1`);
+    expect(other.id).not.toBe(shared.id);
 
     const bus = new InspectorBus();
     const a = fakePipeline();
@@ -158,7 +160,7 @@ describe('attach: encoder pipeline', () => {
     await a(TEXT);
     hc.detach();
 
-    expect(find(bus, 'call:start').map((e) => e.callId)).toEqual(['c1', 'c2', 'c3']);
+    expect(find(bus, 'call:start').map((e) => e.callId)).toEqual(['c1', 'c2', 'c3'].map((id) => `${bus.id}/${id}`));
     const runIds = find(bus, 'run:start').map((e) => e.runId);
     expect(runIds).toHaveLength(3);
     expect(new Set(runIds).size).toBe(3);
@@ -289,7 +291,7 @@ describe('attach: generative pipeline', () => {
     expect(logits).toHaveLength(2);
     for (const e of logits) {
       expect(e.topK).toHaveLength(3);
-      expect(e.tensorId).toMatch(/^t\d+$/);
+      expect(e.tensorId).toMatch(/^s[^/]+\/t\d+$/);
       expect(store.has(e.tensorId!)).toBe(true);
     }
   });
@@ -348,14 +350,14 @@ describe('replay wiring (story 9)', () => {
     await a(TEXT);
     await a(TEXT);
     expect(registry.size).toBe(3); // c1 evicted
-    expect(['c1', 'c2', 'c3', 'c4'].map((id) => registry.has(id))).toEqual([false, true, true, true]);
+    expect(['c1', 'c2', 'c3', 'c4'].map((id) => registry.has(`${bus.id}/${id}`))).toEqual([false, true, true, true]);
 
     ha.detach();
-    expect(['c2', 'c3', 'c4'].map((id) => registry.has(id))).toEqual([true, false, false]);
+    expect(['c2', 'c3', 'c4'].map((id) => registry.has(`${bus.id}/${id}`))).toEqual([true, false, false]);
     ha.detach();
     hb.detach();
     expect(registry.size).toBe(0);
-    await expect(bus.request('replay', { callId: 'c2' })).resolves.toEqual({ ok: false, error: 'unknown call c2' });
+    await expect(bus.request('replay', { callId: `${bus.id}/c2` })).resolves.toEqual({ ok: false, error: `unknown call ${bus.id}/c2` });
     assertCloneSafe(bus);
   });
 

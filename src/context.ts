@@ -15,7 +15,7 @@ export interface InspectorOptions {
   head: number;
   /** Entries per `logits` event. */
   topK: number;
-  /** Nominal byte budget of the tensor store. */
+  /** Dedicated store budget when passed to attach(); an explicit store takes precedence. */
   retainBytes: number;
   /** Keep every step's full logits tensor in the store (512 KB per step on a 128k vocab). */
   retainLogits: boolean;
@@ -131,14 +131,14 @@ export class WrapContext {
     this.counters = countersOf(bus);
   }
 
-  /** Unique per bus: `c1`, `c2`, … across every context that emits on it. */
+  /** Bus namespace plus counter: unique across contexts and worker buses. */
   nextCallId(): string {
-    return `c${++this.counters.calls}`;
+    return `${this.bus.id}/c${++this.counters.calls}`;
   }
 
-  /** Unique per bus, like `nextCallId`. */
+  /** Namespaced like `nextCallId`. */
   nextRunId(): string {
-    return `r${++this.counters.runs}`;
+    return `${this.bus.id}/r${++this.counters.runs}`;
   }
 
   /**

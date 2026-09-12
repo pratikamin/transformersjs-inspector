@@ -175,11 +175,11 @@ describe('replay through attach()', () => {
     await first;
     expect(types(bus)).toEqual(['call:start', 'tokenize', 'run:start', 'run:end', 'result']);
 
-    const res = await bus.request('replay', { callId: 'c1' });
-    expect(res).toEqual({ ok: true, callId: 'c2' });
+    const res = await bus.request('replay', { callId: `${bus.id}/c1` });
+    expect(res).toEqual({ ok: true, callId: `${bus.id}/c2` });
     // Resolved at call start: c2 has begun but not finished.
-    expect(starts(bus).map((e) => e.callId)).toEqual(['c1', 'c2']);
-    expect(starts(bus)[1]).toMatchObject({ callId: 'c2', replayOf: 'c1', label: 'feature-extraction · bert', task: 'feature-extraction' });
+    expect(starts(bus).map((e) => e.callId)).toEqual([`${bus.id}/c1`, `${bus.id}/c2`]);
+    expect(starts(bus)[1]).toMatchObject({ callId: `${bus.id}/c2`, replayOf: `${bus.id}/c1`, label: 'feature-extraction · bert', task: 'feature-extraction' });
     expect('replayOf' in starts(bus)[0]).toBe(false);
     expect(results(bus)).toHaveLength(1);
 
@@ -193,8 +193,8 @@ describe('replay through attach()', () => {
     expect(types(bus)).toEqual(['call:start', 'tokenize', 'run:start', 'run:end', 'result', 'call:start', 'tokenize', 'run:start', 'run:end', 'result']);
     const tok = find(bus, 'tokenize');
     expect(tok[1].ids).toEqual(tok[0].ids);
-    expect(tok[1].callId).toBe('c2');
-    expect(results(bus)[1]).toMatchObject({ callId: 'c2', error: null });
+    expect(tok[1].callId).toBe(`${bus.id}/c2`);
+    expect(results(bus)[1]).toMatchObject({ callId: `${bus.id}/c2`, error: null });
     assertCloneSafe(bus);
   });
 
@@ -204,20 +204,20 @@ describe('replay through attach()', () => {
     attach(pipe, { panel: false, bus });
 
     const first = pipe(TEXT);
-    await expect(bus.request('replay', { callId: 'c1' })).resolves.toEqual({ ok: false, error: expect.stringMatching(/c1 .*in flight/) });
+    await expect(bus.request('replay', { callId: `${bus.id}/c1` })).resolves.toEqual({ ok: false, error: expect.stringMatching(/c1 .*in flight/) });
     gates[0].resolve();
     await first;
 
-    await expect(bus.request('replay', { callId: 'c1' })).resolves.toEqual({ ok: true, callId: 'c2' });
-    await expect(bus.request('replay', { callId: 'c1' })).resolves.toEqual({ ok: false, error: expect.stringMatching(/c1 .*in flight/) });
+    await expect(bus.request('replay', { callId: `${bus.id}/c1` })).resolves.toEqual({ ok: true, callId: `${bus.id}/c2` });
+    await expect(bus.request('replay', { callId: `${bus.id}/c1` })).resolves.toEqual({ ok: false, error: expect.stringMatching(/c1 .*in flight/) });
     // The replayed call itself is in flight too.
-    await expect(bus.request('replay', { callId: 'c2' })).resolves.toEqual({ ok: false, error: expect.stringMatching(/c2 .*in flight/) });
+    await expect(bus.request('replay', { callId: `${bus.id}/c2` })).resolves.toEqual({ ok: false, error: expect.stringMatching(/c2 .*in flight/) });
     gates[1].resolve();
     await vi.waitFor(() => expect(results(bus)).toHaveLength(2));
-    await expect(bus.request('replay', { callId: 'c1' })).resolves.toEqual({ ok: true, callId: 'c3' });
+    await expect(bus.request('replay', { callId: `${bus.id}/c1` })).resolves.toEqual({ ok: true, callId: `${bus.id}/c3` });
     gates[2].resolve();
     await vi.waitFor(() => expect(results(bus)).toHaveLength(3));
-    expect(starts(bus).map((e) => e.replayOf)).toEqual([undefined, 'c1', 'c1']);
+    expect(starts(bus).map((e) => e.replayOf)).toEqual([undefined, `${bus.id}/c1`, `${bus.id}/c1`]);
   });
 
   test('a replayed call is itself replayable (replayOf chains) and unknown ids are refused', async () => {
@@ -225,16 +225,16 @@ describe('replay through attach()', () => {
     const pipe = fakePipeline();
     attach(pipe, { panel: false, bus });
     await pipe(TEXT);
-    await expect(bus.request('replay', { callId: 'c1' })).resolves.toEqual({ ok: true, callId: 'c2' });
+    await expect(bus.request('replay', { callId: `${bus.id}/c1` })).resolves.toEqual({ ok: true, callId: `${bus.id}/c2` });
     await vi.waitFor(() => expect(results(bus)).toHaveLength(2));
-    await expect(bus.request('replay', { callId: 'c2' })).resolves.toEqual({ ok: true, callId: 'c3' });
+    await expect(bus.request('replay', { callId: `${bus.id}/c2` })).resolves.toEqual({ ok: true, callId: `${bus.id}/c3` });
     await vi.waitFor(() => expect(results(bus)).toHaveLength(3));
     expect(starts(bus).map((e) => [e.callId, e.replayOf ?? null])).toEqual([
-      ['c1', null],
-      ['c2', 'c1'],
-      ['c3', 'c2'],
+      [`${bus.id}/c1`, null],
+      [`${bus.id}/c2`, `${bus.id}/c1`],
+      [`${bus.id}/c3`, `${bus.id}/c2`],
     ]);
-    await expect(bus.request('replay', { callId: 'c9' })).resolves.toEqual({ ok: false, error: 'unknown call c9' });
+    await expect(bus.request('replay', { callId: `${bus.id}/c9` })).resolves.toEqual({ ok: false, error: `unknown call ${bus.id}/c9` });
   });
 
   test('a failing replay still answers ok (the call started); its rejection is swallowed and reported as result.error', async () => {
@@ -252,18 +252,18 @@ describe('replay through attach()', () => {
     const unhandled = vi.fn();
     process.on('unhandledRejection', unhandled);
     try {
-      await expect(bus.request('replay', { callId: 'c1' })).resolves.toEqual({ ok: true, callId: 'c2' });
+      await expect(bus.request('replay', { callId: `${bus.id}/c1` })).resolves.toEqual({ ok: true, callId: `${bus.id}/c2` });
       await vi.waitFor(() => expect(results(bus)).toHaveLength(2));
       await tick();
       await tick();
     } finally {
       process.off('unhandledRejection', unhandled);
     }
-    expect(results(bus)[1]).toMatchObject({ callId: 'c2', error: 'Error: model exploded' });
+    expect(results(bus)[1]).toMatchObject({ callId: `${bus.id}/c2`, error: 'Error: model exploded' });
     expect(unhandled).not.toHaveBeenCalled();
     // Settled, so the original can be replayed again.
     fail = false;
-    await expect(bus.request('replay', { callId: 'c1' })).resolves.toEqual({ ok: true, callId: 'c3' });
+    await expect(bus.request('replay', { callId: `${bus.id}/c1` })).resolves.toEqual({ ok: true, callId: `${bus.id}/c3` });
     await vi.waitFor(() => expect(results(bus)).toHaveLength(3));
     assertCloneSafe(bus);
   });
@@ -275,18 +275,18 @@ describe('replay through attach()', () => {
     await pipe('one');
     await pipe('two');
     expect(registryFor(bus).max).toBe(1);
-    await expect(bus.request('replay', { callId: 'c1' })).resolves.toEqual({ ok: false, error: 'unknown call c1' });
-    await expect(bus.request('replay', { callId: 'c2' })).resolves.toEqual({ ok: true, callId: 'c3' });
+    await expect(bus.request('replay', { callId: `${bus.id}/c1` })).resolves.toEqual({ ok: false, error: `unknown call ${bus.id}/c1` });
+    await expect(bus.request('replay', { callId: `${bus.id}/c2` })).resolves.toEqual({ ok: true, callId: `${bus.id}/c3` });
     await vi.waitFor(() => expect(results(bus)).toHaveLength(3));
     expect(find(bus, 'tokenize')[2].text).toBe('two');
 
     handle.detach();
     expect(registryFor(bus).size).toBe(0);
-    await expect(bus.request('replay', { callId: 'c3' })).resolves.toEqual({ ok: false, error: 'unknown call c3' });
+    await expect(bus.request('replay', { callId: `${bus.id}/c3` })).resolves.toEqual({ ok: false, error: `unknown call ${bus.id}/c3` });
     // The handler stays on the bus (it is per bus, not per attach); a re-attach records again.
     attach(pipe, { panel: false, bus });
     await pipe('three');
-    await expect(bus.request('replay', { callId: 'c4' })).resolves.toEqual({ ok: true, callId: 'c5' });
+    await expect(bus.request('replay', { callId: `${bus.id}/c4` })).resolves.toEqual({ ok: true, callId: `${bus.id}/c5` });
     await vi.waitFor(() => expect(results(bus)).toHaveLength(5));
   });
 
@@ -296,7 +296,7 @@ describe('replay through attach()', () => {
     attach(pipe, { panel: false, bus, replayHistory: 0 });
     await pipe(TEXT);
     expect(registryFor(bus).size).toBe(0);
-    await expect(bus.request('replay', { callId: 'c1' })).resolves.toEqual({ ok: false, error: expect.stringMatching(/disabled/) });
+    await expect(bus.request('replay', { callId: `${bus.id}/c1` })).resolves.toEqual({ ok: false, error: expect.stringMatching(/disabled/) });
   });
 
   test('two pipelines on one bus share the handler and each replays through its own wrapper', async () => {
@@ -307,18 +307,18 @@ describe('replay through attach()', () => {
     attach(b, { panel: false, bus, label: 'B' });
     await a('alpha');
     await b('beta', { max_new_tokens: 2 });
-    await expect(bus.request('replay', { callId: 'c2' })).resolves.toEqual({ ok: true, callId: 'c3' });
+    await expect(bus.request('replay', { callId: `${bus.id}/c2` })).resolves.toEqual({ ok: true, callId: `${bus.id}/c3` });
     await vi.waitFor(() => expect(results(bus)).toHaveLength(3));
-    await expect(bus.request('replay', { callId: 'c1' })).resolves.toEqual({ ok: true, callId: 'c4' });
+    await expect(bus.request('replay', { callId: `${bus.id}/c1` })).resolves.toEqual({ ok: true, callId: `${bus.id}/c4` });
     await vi.waitFor(() => expect(results(bus)).toHaveLength(4));
     expect(starts(bus).map((e) => [e.callId, e.label, e.replayOf ?? null])).toEqual([
-      ['c1', 'A', null],
-      ['c2', 'B', null],
-      ['c3', 'B', 'c2'],
-      ['c4', 'A', 'c1'],
+      [`${bus.id}/c1`, 'A', null],
+      [`${bus.id}/c2`, 'B', null],
+      [`${bus.id}/c3`, 'B', `${bus.id}/c2`],
+      [`${bus.id}/c4`, 'A', `${bus.id}/c1`],
     ]);
     const gen = find(bus, 'token');
-    expect(gen.filter((e) => e.callId === 'c3').map((e) => e.ids)).toEqual(gen.filter((e) => e.callId === 'c2').map((e) => e.ids));
+    expect(gen.filter((e) => e.callId === `${bus.id}/c3`).map((e) => e.ids)).toEqual(gen.filter((e) => e.callId === `${bus.id}/c2`).map((e) => e.ids));
     assertCloneSafe(bus);
   });
 });

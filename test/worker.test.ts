@@ -82,17 +82,17 @@ describe('messagePortTransport over MessageChannel', () => {
 
     // The page bus has no 'replay' handler of its own: the request crosses the port and is
     // answered as soon as the replayed call has started on the worker side.
-    await expect(page.request('replay', { callId: 'c1' })).resolves.toEqual({ ok: true, callId: 'c2' });
+    await expect(page.request('replay', { callId: `${worker.id}/c1` })).resolves.toEqual({ ok: true, callId: `${worker.id}/c2` });
     await vi.waitFor(() => expect(resultsOn(page)).toHaveLength(2));
     const starts = page.history.filter((e) => e.type === 'call:start');
     expect(starts).toHaveLength(2);
-    expect(starts[1]).toMatchObject({ callId: 'c2', replayOf: 'c1', label: 'feature-extraction · bert' });
+    expect(starts[1]).toMatchObject({ callId: `${worker.id}/c2`, replayOf: `${worker.id}/c1`, label: 'feature-extraction · bert' });
     expect(page.history.map((e) => e.type)).toEqual(worker.history.map((e) => e.type));
     for (const e of page.history) expect(structuredClone(e)).toEqual(e);
 
     await expect(page.request('replay', { callId: 'nope' })).resolves.toEqual({ ok: false, error: 'unknown call nope' });
     handle.detach();
-    await expect(page.request('replay', { callId: 'c2' })).resolves.toEqual({ ok: false, error: 'unknown call c2' });
+    await expect(page.request('replay', { callId: `${worker.id}/c2` })).resolves.toEqual({ ok: false, error: `unknown call ${worker.id}/c2` });
   });
 
   test('a handler that throws on the worker side rejects the page request with its message', async () => {

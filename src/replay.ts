@@ -91,7 +91,7 @@ export function registryFor(bus: InspectorBus, max?: number): ReplayRegistry {
     registry = new ReplayRegistry(max);
     registries.set(bus, registry);
     const r = registry;
-    bus.handle('replay', (req) => handleReplay(r, req));
+    bus.handle('replay', (req) => handleReplay(r, req), { scope: bus.id });
   }
   return registry;
 }

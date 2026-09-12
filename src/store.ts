@@ -14,6 +14,8 @@ export const DEFAULT_MAX_BYTES = 64 * 1024 * 1024;
 type Entry = { tensor: TensorLike; summary: TensorSummary };
 
 export class TensorStore {
+  /** Store namespace also routes lazy readback to the owning page or worker. */
+  readonly id = `s${crypto.randomUUID()}`;
   readonly maxBytes: number;
   readonly head: number;
   /** Live entries in insertion order (Map preserves it); the first key is the eviction candidate. */
@@ -44,7 +46,7 @@ export class TensorStore {
   put(t: TensorLike, name: string): TensorSummary {
     let id = this.ids.get(t);
     if (id === undefined) {
-      id = `t${++this.seq}`;
+      id = `${this.id}/t${++this.seq}`;
       this.ids.set(t, id);
     }
     const live = this.entries.get(id);
@@ -82,7 +84,7 @@ export class TensorStore {
 
   /** Registers this store as the bus's `'tensor'` request handler; returns the unregister function. */
   attachTo(bus: InspectorBus): () => void {
-    return bus.handle('tensor', ({ id }) => this.read(id));
+    return bus.handle('tensor', ({ id }) => this.read(id), { scope: this.id });
   }
 
   private evictToBudget(): void {

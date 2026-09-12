@@ -43,12 +43,12 @@ describe('InspectorOptions / WrapContext', () => {
     expect(new WrapContext(bus, store, { retainLogits: true }).opts.retainLogits).toBe(true);
   });
 
-  test('ids are string counters and now() is a finite number', () => {
-    const { ctx } = setup();
+  test('ids are namespaced counters and now() is a finite number', () => {
+    const { bus, ctx } = setup();
     expect(ctx.currentCallId).toBeNull();
     expect(ctx.tokenizer).toBeNull();
-    expect([ctx.nextCallId(), ctx.nextCallId()]).toEqual(['c1', 'c2']);
-    expect([ctx.nextRunId(), ctx.nextRunId(), ctx.nextRunId()]).toEqual(['r1', 'r2', 'r3']);
+    expect([ctx.nextCallId(), ctx.nextCallId()]).toEqual([`${bus.id}/c1`, `${bus.id}/c2`]);
+    expect([ctx.nextRunId(), ctx.nextRunId(), ctx.nextRunId()]).toEqual([`${bus.id}/r1`, `${bus.id}/r2`, `${bus.id}/r3`]);
     expect(Number.isFinite(ctx.now())).toBe(true);
     expect(ctx.tokenToString(1996)).toBeNull(); // no tokenizer yet
   });
@@ -88,10 +88,10 @@ describe('wrapSession', () => {
 
     const [start] = find(bus, 'run:start');
     const [end] = find(bus, 'run:end');
-    expect(start).toMatchObject({ callId: null, runId: 'r1', session: 'model' });
+    expect(start).toMatchObject({ callId: null, runId: `${bus.id}/r1`, session: 'model' });
     expect(start.inputs.map((s) => s.name)).toEqual(['input_ids', 'attention_mask', 'token_type_ids']);
     expect(start.inputs[0]).toMatchObject({ dtype: 'int64', dims: [1, 7], location: 'cpu', size: 7, bytes: 56, head: IDS });
-    expect(end).toMatchObject({ callId: null, runId: 'r1', session: 'model', error: null });
+    expect(end).toMatchObject({ callId: null, runId: `${bus.id}/r1`, session: 'model', error: null });
     expect(end.outputs).toHaveLength(1);
     expect(end.outputs[0]).toMatchObject({ name: 'last_hidden_state', dtype: 'float32', dims: [1, 7, 384], size: 7 * 384 });
     expect(end.outputs[0].head).toHaveLength(8);
@@ -110,8 +110,8 @@ describe('wrapSession', () => {
     ctx.currentCallId = null;
     await session.run(encoderFeeds());
     expect(bus.history.map((e) => ('callId' in e ? e.callId : undefined))).toEqual(['c1', 'c1', null, null]);
-    expect(find(bus, 'run:start').map((e) => e.runId)).toEqual(['r1', 'r2']);
-    expect(find(bus, 'run:end').map((e) => e.runId)).toEqual(['r1', 'r2']);
+    expect(find(bus, 'run:start').map((e) => e.runId)).toEqual([`${bus.id}/r1`, `${bus.id}/r2`]);
+    expect(find(bus, 'run:end').map((e) => e.runId)).toEqual([`${bus.id}/r1`, `${bus.id}/r2`]);
     for (const ev of bus.history) {
       expect(isInspectorEvent(ev)).toBe(true);
       expect(structuredClone(ev)).toEqual(ev);
@@ -160,7 +160,7 @@ describe('wrapSession', () => {
     await expect(session.run({ input_ids: fakeTensor({ type: 'int64', dims: [1, 2], data: [1, 2] }) })).rejects.toBe(boom);
     expect(types(bus)).toEqual(['run:start', 'run:end']);
     const [end] = find(bus, 'run:end');
-    expect(end).toMatchObject({ runId: 'r1', session: 'model', outputs: [], error: 'Error: boom' });
+    expect(end).toMatchObject({ runId: `${bus.id}/r1`, session: 'model', outputs: [], error: 'Error: boom' });
     expect(end.ms).toBeGreaterThanOrEqual(0);
     expect(structuredClone(end)).toEqual(end);
   });
@@ -245,12 +245,12 @@ describe('wrapSessions', () => {
     await encoder.run(encoderFeeds());
     await decoder.run({ input_ids: fakeTensor({ type: 'int64', dims: [1, 1], data: [5] }) });
     expect(find(bus, 'run:start').map((e) => [e.runId, e.session])).toEqual([
-      ['r1', 'encoder_model'],
-      ['r2', 'decoder_model_merged'],
+      [`${bus.id}/r1`, 'encoder_model'],
+      [`${bus.id}/r2`, 'decoder_model_merged'],
     ]);
     expect(find(bus, 'run:end').map((e) => [e.runId, e.session])).toEqual([
-      ['r1', 'encoder_model'],
-      ['r2', 'decoder_model_merged'],
+      [`${bus.id}/r1`, 'encoder_model'],
+      [`${bus.id}/r2`, 'decoder_model_merged'],
     ]);
 
     restore();

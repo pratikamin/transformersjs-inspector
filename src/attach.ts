@@ -10,7 +10,7 @@
 import type { InspectorOptions } from './context';
 import type { PanelOptions } from './panel/panel';
 import type { InspectorBus } from './bus';
-import type { TensorStore } from './store';
+import { TensorStore } from './store';
 import type { GenerateLike, PipelineLike } from './types';
 import { InspectorError } from './bus';
 import { WrapContext } from './context';
@@ -24,7 +24,10 @@ import { wrapTokenizer } from './wrap/tokenizer';
 export interface AttachOptions extends Partial<InspectorOptions> {
   /** Bus to emit on; the process-wide default bus otherwise. */
   bus?: InspectorBus;
-  /** Store that hands out tensor ids; the process-wide default store otherwise. */
+  /**
+   * Explicit store takes precedence over retainBytes/head. An explicit retainBytes
+   * creates a dedicated store; with no budget option, use the shared default store.
+   */
   store?: TensorStore;
   /**
    * `false` mounts no panel; an object is passed to `mountPanel`. Default: mount (a
@@ -89,7 +92,9 @@ function registerStore(bus: InspectorBus, store: TensorStore): void {
 export function attach(pipe: unknown, opts: AttachOptions = {}): AttachHandle {
   assertPipeline(pipe);
   const bus = opts.bus ?? getDefaultBus();
-  const store = opts.store ?? getDefaultStore();
+  const store = opts.store ?? (opts.retainBytes === undefined
+    ? getDefaultStore()
+    : new TensorStore({ maxBytes: opts.retainBytes, head: opts.head }));
   registerStore(bus, store);
 
   const ctx = new WrapContext(bus, store, { ...opts, label: opts.label ?? defaultLabel(pipe) });

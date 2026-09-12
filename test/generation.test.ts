@@ -235,7 +235,7 @@ describe('wrapGenerate', () => {
     const ids = logits.map((e) => e.tensorId);
     expect(new Set(ids).size).toBe(3);
     for (const [step, id] of ids.entries()) {
-      expect(id).toMatch(/^t\d+$/);
+      expect(id).toMatch(/^s[^/]+\/t\d+$/);
       expect(store.has(id!)).toBe(true);
       const res = await store.read(id!);
       expect('data' in res).toBe(true);

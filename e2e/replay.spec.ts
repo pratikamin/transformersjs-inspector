@@ -19,7 +19,7 @@ test('feature extraction: Replay adds a second row marked as a replay of #1 with
   await expect(rows).toHaveCount(1);
   const first = rows.first();
   const firstId = await first.getAttribute('data-call');
-  expect(firstId).toMatch(/^c\d+$/);
+  expect(firstId).toMatch(/^b[^/]+\/c\d+$/);
   // An ordinary row carries no marker and an enabled Replay button.
   await expect(first.locator('[data-replay-of]')).toHaveCount(0);
   const replay = first.locator('button[data-action="replay"]');

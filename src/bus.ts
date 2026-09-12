@@ -23,7 +23,7 @@ export class InspectorError extends Error {
 
 type Listener = (ev: InspectorEvent) => void;
 type Handler = (req: unknown) => unknown;
-type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> };
+type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout>; waiting: Set<Transport> };
 
 export const DEFAULT_MAX_HISTORY = 500;
 export const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
@@ -36,16 +36,18 @@ export function isWireMessage(x: unknown): x is WireMessage {
  * Transport-agnostic event bus. Local `emit` fans out to listeners and every
  * connected transport; events arriving on a transport are delivered locally and
  * relayed to the *other* transports only. Requests are answered by a local
- * handler when one exists, otherwise forwarded to the connected transports.
+ * handler for the requested owner when one exists, otherwise forwarded to the
+ * connected transports. Transports must form a tree (cycles are unsupported).
  */
 export class InspectorBus {
+  /** Namespace for call/run ids, unique across pages and workers. Treat ids as opaque. */
+  readonly id = `b${crypto.randomUUID()}`;
   readonly maxHistory: number;
   private readonly _history: InspectorEvent[] = [];
   private readonly listeners = new Set<Listener>();
   private readonly handlers = new Map<string, Handler>();
   private readonly transports = new Set<Transport>();
   private readonly pending = new Map<string, Pending>();
-  private readonly prefix = Math.random().toString(36).slice(2, 8);
   private seq = 0;
 
   constructor(opts: { maxHistory?: number } = {}) {
@@ -70,10 +72,12 @@ export class InspectorBus {
   handle<K extends keyof RequestMap>(
     name: K,
     h: (req: RequestMap[K]['req']) => RequestMap[K]['res'] | Promise<RequestMap[K]['res']>,
+    opts: { scope?: string } = {},
   ): () => void {
-    this.handlers.set(name, h as Handler);
+    const key = opts.scope === undefined ? name : `${name}/${opts.scope}`;
+    this.handlers.set(key, h as Handler);
     return () => {
-      if (this.handlers.get(name) === h) this.handlers.delete(name);
+      if (this.handlers.get(key) === h) this.handlers.delete(key);
     };
   }
 
@@ -121,19 +125,31 @@ export class InspectorBus {
   }
 
   private dispatch(name: string, payload: unknown, from: Transport | null, timeoutMs: number): Promise<unknown> {
-    const h = this.handlers.get(name);
+    // A qualified id must reach its owner; an unrelated local store/registry
+    // must never answer it with its own tensor or an "unknown" verdict.
+    const record = payload as { id?: unknown; callId?: unknown } | null;
+    const id = name === 'tensor' ? record?.id : name === 'replay' ? record?.callId : undefined;
+    const slash = typeof id === 'string' ? id.indexOf('/') : -1;
+    const scope = slash >= 0 ? (id as string).slice(0, slash) : null;
+    let h = this.handlers.get(scope === null ? name : `${name}/${scope}`);
+    // Keep bare-id requests useful for callers with a single local handler.
+    if (!h && scope === null) {
+      const matches = [...this.handlers].filter(([key]) => key.startsWith(`${name}/`));
+      if (matches.length === 1) h = matches[0][1];
+    }
     if (h) {
       return new Promise((resolve) => resolve(h(payload)));
     }
     return new Promise((resolve, reject) => {
-      const reqId = `${this.prefix}-${++this.seq}`;
+      const reqId = `${this.id}-${++this.seq}`;
       const timer = setTimeout(() => {
         this.pending.delete(reqId);
         reject(new InspectorError(`request '${name}' timed out after ${timeoutMs} ms`));
       }, timeoutMs);
-      this.pending.set(reqId, { resolve, reject, timer });
-      const sent = this.broadcast({ __tjsi: 1, kind: 'request', reqId, name, payload }, from);
-      if (sent === 0) {
+      const waiting = new Set([...this.transports].filter((t) => t !== from));
+      this.pending.set(reqId, { resolve, reject, timer, waiting });
+      for (const t of waiting) t.post({ __tjsi: 1, kind: 'request', reqId, name, payload });
+      if (waiting.size === 0) {
         clearTimeout(timer);
         this.pending.delete(reqId);
         reject(new InspectorError(`no handler for request '${name}'`));
@@ -157,7 +173,10 @@ export class InspectorBus {
       }
       case 'response': {
         const p = this.pending.get(msg.reqId);
-        if (!p) return;
+        if (!p || !p.waiting.delete(from)) return;
+        // Several workers can be connected. A non-owner can reject before the
+        // owner answers; only fail after every branch has rejected.
+        if (!msg.ok && p.waiting.size > 0) return;
         this.pending.delete(msg.reqId);
         clearTimeout(p.timer);
         if (msg.ok) p.resolve(msg.payload);
